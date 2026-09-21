@@ -160,6 +160,15 @@ def init_schema():
         FOREIGN KEY (sku) REFERENCES products(sku)
     )
     ''')
+
+    # 6. Registered Brands Table
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS brands (
+        name TEXT PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    cur.execute('INSERT OR IGNORE INTO brands (name) SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND TRIM(brand) != ""')
         
     # Backfill missing courier costing data for realistic view
     for tbl in ['dispatch_online', 'dispatch_gt_mt']:
@@ -796,13 +805,51 @@ def delete_product(sku):
         'message': f"Product '{name}' ({sku}) has been successfully removed from the portal."
     })
 
-@app.route('/api/brands')
-def get_brands():
+@app.route('/api/brands', methods=['GET', 'POST'])
+def handle_brands():
+    email, name = get_user_info()
+    profile = get_user_profile(email)
+    
+    if request.method == 'POST':
+        if not (profile.get('is_admin') or profile.get('can_edit_inventory')):
+            return jsonify({'error': 'Unauthorized: Only Admin Manager or Inventory Lead can add brands'}), 403
+            
+        data = request.get_json(silent=True) or request.form
+        brand_name = (data.get('name') or data.get('brand') or '').strip()
+        if not brand_name:
+            return jsonify({'error': 'Brand name is required'}), 400
+            
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Check if already exists (case-insensitive check)
+        existing = cur.execute('SELECT name FROM brands WHERE LOWER(name) = LOWER(?)', (brand_name,)).fetchone()
+        if not existing:
+            # Also check products table in case it was used there
+            existing = cur.execute('SELECT brand as name FROM products WHERE LOWER(brand) = LOWER(?)', (brand_name,)).fetchone()
+            
+        if existing:
+            conn.close()
+            return jsonify({'status': 'exists', 'brand': existing['name'], 'message': f"Brand '{existing['name']}' already exists."})
+            
+        cur.execute('INSERT INTO brands (name) VALUES (?)', (brand_name,))
+        record_audit(conn, 'ADD_BRAND', 'Inventory & Brands', brand_name, f"Registered new brand '{brand_name}'")
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'success', 'brand': brand_name, 'message': f"Brand '{brand_name}' added successfully."})
+
+    # GET method
     conn = get_db()
     cur = conn.cursor()
-    rows = cur.execute('SELECT DISTINCT brand FROM products ORDER BY brand').fetchall()
+    rows = cur.execute('''
+        SELECT DISTINCT name FROM (
+            SELECT name FROM brands WHERE name IS NOT NULL AND TRIM(name) != ""
+            UNION
+            SELECT brand AS name FROM products WHERE brand IS NOT NULL AND TRIM(brand) != ""
+        ) ORDER BY name COLLATE NOCASE
+    ''').fetchall()
     conn.close()
-    return jsonify([r['brand'] for r in rows])
+    return jsonify([r['name'] for r in rows if r['name']])
 
 # --- DISPATCH ONLINE ---
 @app.route('/api/dispatch-online', methods=['GET'])

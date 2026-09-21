@@ -829,6 +829,11 @@
             <button onclick="resetStockFilters()" id="btnResetStockFilters" class="text-slate-500 hover:text-indigo-700 hover:bg-white px-2 py-1 rounded-lg border border-slate-200 bg-white/60 transition flex items-center gap-1 font-medium" title="Reset Brand and Product filters">
               <i class="fa-solid fa-rotate-left text-slate-400"></i> Reset Filters
             </button>
+
+            <!-- ADD BRAND BUTTON -->
+            <button onclick="openAddBrandModal()" id="btnAddBrand" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded-lg border border-indigo-200 text-xs flex items-center gap-1 shadow-xs transition" title="Register a new Brand in the portal">
+              <i class="fa-solid fa-plus text-[10px]"></i> Add Brand
+            </button>
           </div>
 
           <div class="flex items-center gap-2 text-slate-500 text-[11px]">
@@ -1545,7 +1550,12 @@
             <input type="text" id="new_prod_sku" required placeholder="e.g. TEA-MASALA-250G" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-mono uppercase font-bold text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500">
           </div>
           <div>
-            <label class="block font-medium text-slate-700 mb-1">Brand *</label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block font-medium text-slate-700">Brand *</label>
+              <button type="button" onclick="openAddBrandModal()" class="text-indigo-600 hover:text-indigo-800 font-bold text-[11px] flex items-center gap-0.5">
+                <i class="fa-solid fa-plus text-[9px]"></i> New Brand
+              </button>
+            </div>
             <input type="text" id="new_prod_brand" list="brandsDatalist" required placeholder="e.g. Brand A" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500">
             <datalist id="brandsDatalist"></datalist>
           </div>
@@ -1578,6 +1588,36 @@
           <button type="button" onclick="closeModal('modalAddProduct')" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium">Cancel</button>
           <button type="submit" id="btnSubmitAddProduct" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
             <i class="fa-solid fa-plus"></i> Register Product & Stock
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD NEW BRAND -->
+  <div id="modalAddBrand" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-150">
+      <div class="bg-indigo-700 px-5 py-3.5 text-white flex items-center justify-between">
+        <h3 class="font-bold text-sm flex items-center gap-2">
+          <i class="fa-solid fa-tag"></i> Add New Brand
+        </h3>
+        <button onclick="closeModal('modalAddBrand')" class="text-white/80 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="formAddBrand" onsubmit="submitAddBrand(event)" class="p-5 space-y-3.5 text-xs">
+        <div class="p-2.5 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] text-indigo-900 flex items-center gap-2">
+          <i class="fa-solid fa-circle-info text-indigo-600 shrink-0"></i>
+          <span>Register a new brand name to start adding products, batches, and inventory to it.</span>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Brand Name *</label>
+          <input type="text" id="new_brand_name" required placeholder="e.g. Brand D, Aura Botanicals" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-slate-800 outline-none focus:ring-1 focus:ring-indigo-500">
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 flex justify-end space-x-2">
+          <button type="button" onclick="closeModal('modalAddBrand')" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium">Cancel</button>
+          <button type="submit" id="btnSubmitAddBrand" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
+            <i class="fa-solid fa-check"></i> Save Brand
           </button>
         </div>
       </form>
@@ -1869,6 +1909,10 @@
       if (btnAddProd) {
         btnAddProd.style.display = canManageInventory ? 'inline-flex' : 'none';
       }
+      const btnAddBrand = document.getElementById('btnAddBrand');
+      if (btnAddBrand) {
+        btnAddBrand.style.display = canManageInventory ? 'inline-flex' : 'none';
+      }
 
       updateDispatchActionButtons();
     }
@@ -1954,16 +1998,39 @@
       alert('Platform assignments and roles updated successfully!');
     }
 
+    let allBrandsList = [];
     async function loadBrands() {
-      const res = await fetch('/api/brands');
-      const brands = await res.json();
-      const select = document.getElementById('brandFilter');
-      brands.forEach(b => {
-        const opt = document.createElement('option');
-        opt.value = b;
-        opt.textContent = b;
-        select.appendChild(opt);
-      });
+      try {
+        const res = await fetch('/api/brands');
+        allBrandsList = await res.json();
+        
+        // Update top master header brandFilter
+        const select = document.getElementById('brandFilter');
+        if (select) {
+          const currentVal = select.value || 'All';
+          select.innerHTML = '<option value="All">All Brands</option>';
+          allBrandsList.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            if (b === currentVal) opt.selected = true;
+            select.appendChild(opt);
+          });
+        }
+
+        // Update brandsDatalist for modalAddProduct
+        const dl = document.getElementById('brandsDatalist');
+        if (dl) {
+          dl.innerHTML = allBrandsList.map(b => `<option value="${escapeHtml(b)}"></option>`).join('');
+        }
+
+        // Update stockBrandFilter dropdown if products loaded
+        if (typeof populateStockFilters === 'function') {
+          populateStockFilters();
+        }
+      } catch (err) {
+        console.error('Failed to load brands:', err);
+      }
     }
 
     async function loadProducts() {
@@ -3363,14 +3430,16 @@
     function populateStockFilters() {
       const brandSelect = document.getElementById('stockBrandFilter');
       const productSelect = document.getElementById('stockProductFilter');
-      if (!brandSelect || !productSelect || !productsList) return;
+      if (!brandSelect || !productSelect) return;
 
       const currentBrandVal = brandSelect.value || 'All';
       const currentSkuVal = productSelect.value || 'All';
 
-      const brands = [...new Set(productsList.map(p => p.brand).filter(Boolean))].sort();
+      const brandsFromProds = productsList ? productsList.map(p => p.brand).filter(Boolean) : [];
+      const combinedBrands = [...new Set([...(allBrandsList || []), ...brandsFromProds])].sort((a, b) => a.localeCompare(b));
+      
       brandSelect.innerHTML = '<option value="All">All Brands</option>';
-      brands.forEach(b => {
+      combinedBrands.forEach(b => {
         const opt = document.createElement('option');
         opt.value = b;
         opt.textContent = b;
@@ -3628,9 +3697,10 @@
       }
       
       const dl = document.getElementById('brandsDatalist');
-      if (dl && productsList) {
-        const uniqueBrands = [...new Set(productsList.map(p => p.brand).filter(Boolean))];
-        dl.innerHTML = uniqueBrands.map(b => `<option value="${escapeHtml(b)}"></option>`).join('');
+      if (dl) {
+        const brandsFromProds = productsList ? productsList.map(p => p.brand).filter(Boolean) : [];
+        const combined = [...new Set([...(allBrandsList || []), ...brandsFromProds])].sort((a, b) => a.localeCompare(b));
+        dl.innerHTML = combined.map(b => `<option value="${escapeHtml(b)}"></option>`).join('');
       }
       
       document.getElementById('new_prod_sku').value = '';
@@ -3685,6 +3755,71 @@
         await loadStats();
       } catch (err) {
         alert('Network error while registering product.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
+    }
+
+    // --- ADD BRAND LOGIC ---
+    function openAddBrandModal() {
+      if (!userProfile.is_admin && !userProfile.can_edit_inventory) {
+        alert("Permission Denied: Only Inventory Leads or Admins can register new brands.");
+        return;
+      }
+      document.getElementById('new_brand_name').value = '';
+      openModal('modalAddBrand');
+      setTimeout(() => {
+        const input = document.getElementById('new_brand_name');
+        if (input) input.focus();
+      }, 100);
+    }
+
+    async function submitAddBrand(e) {
+      e.preventDefault();
+      const brandName = document.getElementById('new_brand_name').value.trim();
+      if (!brandName) {
+        alert("Please enter a brand name.");
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitAddBrand');
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+      try {
+        const res = await fetch('/api/brands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ name: brandName })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Failed to add brand');
+          return;
+        }
+
+        closeModal('modalAddBrand');
+        alert(data.message || `Brand '${brandName}' saved successfully!`);
+
+        await loadBrands();
+
+        // If the Add Product modal is currently open, auto-fill the brand input
+        const prodBrandInput = document.getElementById('new_prod_brand');
+        const prodModal = document.getElementById('modalAddProduct');
+        if (prodBrandInput && prodModal && !prodModal.classList.contains('hidden')) {
+          prodBrandInput.value = brandName;
+        }
+
+        // Set stock brand filter to this new brand and trigger filter refresh
+        const stockBrandEl = document.getElementById('stockBrandFilter');
+        if (stockBrandEl) {
+          stockBrandEl.value = brandName;
+          onStockBrandFilterChange();
+        }
+      } catch (err) {
+        alert('Network error while registering brand.');
       } finally {
         btn.disabled = false;
         btn.innerHTML = orig;
