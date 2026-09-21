@@ -677,7 +677,7 @@
       <!-- TAB: COURIER COSTING & LOGISTICS EXPENSES (MATCHES GOOGLE SHEET + CHARGED WEIGHT) -->
       <div id="view-courier-costing" class="tab-view flex-1 flex flex-col p-4 overflow-hidden hidden space-y-3">
         <!-- TOP SUMMARY KPI STRIP -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+        <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
           <div class="bg-teal-50/70 border border-teal-200 rounded-xl p-3 flex flex-col justify-between shadow-xs">
             <span class="text-[11px] font-bold text-teal-800 flex items-center justify-between">
               Total Freight Spent <i class="fa-solid fa-indian-rupee-sign text-teal-600"></i>
@@ -705,16 +705,6 @@
             <div class="mt-1 flex items-baseline justify-between">
               <span id="costingKpiPercentage" class="text-lg font-bold text-amber-950">0.0%</span>
               <span class="text-[10px] text-amber-700">Overall Ratio</span>
-            </div>
-          </div>
-
-          <div class="bg-rose-50/70 border border-rose-200 rounded-xl p-3 flex flex-col justify-between shadow-xs">
-            <span class="text-[11px] font-bold text-rose-800 flex items-center justify-between">
-              Charged vs Actual Wt <i class="fa-solid fa-weight-hanging text-rose-600"></i>
-            </span>
-            <div class="mt-1 flex items-baseline justify-between">
-              <span id="costingKpiWeightVariance" class="text-lg font-bold text-rose-950">+0 kg</span>
-              <span id="costingKpiWeightDetail" class="text-[10px] text-rose-700">Discrepancy</span>
             </div>
           </div>
 
@@ -3572,10 +3562,18 @@
       document.getElementById('costingKpiPoValue').textContent = `₹${(summary.total_po_value || 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
       document.getElementById('costingKpiPercentage').textContent = `${(summary.overall_freight_percentage || 0)}%`;
       
-      const diff = summary.weight_discrepancy || 0;
-      document.getElementById('costingKpiWeightVariance').textContent = `${diff >= 0 ? '+' : ''}${diff.toLocaleString()} kg`;
-      document.getElementById('costingKpiWeightDetail').textContent = `Act: ${(summary.total_actual_weight || 0).toLocaleString()}kg | Chg: ${(summary.total_charged_weight || 0).toLocaleString()}kg`;
-      document.getElementById('costingKpiCount').textContent = (summary.total_shipments || 0).toLocaleString();
+      const elWeightVar = document.getElementById('costingKpiWeightVariance');
+      if (elWeightVar) {
+        const diff = summary.weight_discrepancy || 0;
+        elWeightVar.textContent = `${diff >= 0 ? '+' : ''}${diff.toLocaleString()} kg`;
+      }
+      const elWeightDet = document.getElementById('costingKpiWeightDetail');
+      if (elWeightDet) {
+        elWeightDet.textContent = `Act: ${(summary.total_actual_weight || 0).toLocaleString()}kg | Chg: ${(summary.total_charged_weight || 0).toLocaleString()}kg`;
+      }
+      if (document.getElementById('costingKpiCount')) {
+        document.getElementById('costingKpiCount').textContent = (summary.total_shipments || 0).toLocaleString();
+      }
 
       const tbody = document.getElementById('courierCostingTableBody');
       if (!tbody) return;
