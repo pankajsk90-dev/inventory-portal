@@ -802,6 +802,42 @@
           </div>
         </div>
 
+        <!-- INVENTORY FILTER BAR: BRAND & DEPENDENT PRODUCT FILTER -->
+        <div class="flex items-center justify-between flex-wrap gap-2 bg-slate-50/80 px-3 py-2 rounded-xl border border-slate-200 text-xs">
+          <div class="flex items-center gap-2.5 flex-wrap">
+            <!-- BRAND FILTER -->
+            <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-xs">
+              <span class="text-slate-500 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-tag text-indigo-500"></i> Brand:
+              </span>
+              <select id="stockBrandFilter" onchange="onStockBrandFilterChange()" class="font-bold text-slate-800 outline-none bg-transparent cursor-pointer">
+                <option value="All">All Brands</option>
+              </select>
+            </div>
+
+            <!-- DEPENDENT PRODUCT FILTER -->
+            <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-xs">
+              <span class="text-slate-500 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-box text-indigo-500"></i> Product:
+              </span>
+              <select id="stockProductFilter" onchange="onStockProductFilterChange()" class="font-bold text-slate-800 outline-none bg-transparent cursor-pointer max-w-sm truncate">
+                <option value="All">All Products</option>
+              </select>
+            </div>
+
+            <!-- RESET FILTERS BUTTON -->
+            <button onclick="resetStockFilters()" id="btnResetStockFilters" class="text-slate-500 hover:text-indigo-700 hover:bg-white px-2 py-1 rounded-lg border border-slate-200 bg-white/60 transition flex items-center gap-1 font-medium" title="Reset Brand and Product filters">
+              <i class="fa-solid fa-rotate-left text-slate-400"></i> Reset Filters
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2 text-slate-500 text-[11px]">
+            <span id="stockFilterSummary" class="bg-white px-2.5 py-1 rounded-md border border-slate-200 font-medium text-slate-600">
+              Showing All Items
+            </span>
+          </div>
+        </div>
+
         <!-- SUB-VIEW 1: INWARD BATCH LOG (DATE-WISE & BATCH-WISE) -->
         <div id="stockSubView-ledger" class="flex-1 flex flex-col overflow-hidden">
           <div class="table-container overflow-auto border border-slate-200 rounded-xl shadow-sm flex-1">
@@ -1944,6 +1980,7 @@
           el.appendChild(opt);
         });
       });
+      populateStockFilters();
     }
 
     function syncProductSku(selectEl, labelId) {
@@ -2864,9 +2901,18 @@
 
     // --- TAB 7: INVENTORY STOCK ---
     async function loadStock() {
-      const res = await fetch('/api/inventory-stock', { headers: getAuthHeaders() });
+      const brandFilter = document.getElementById('stockBrandFilter');
+      const productFilter = document.getElementById('stockProductFilter');
+      const brand = (brandFilter && brandFilter.value) ? brandFilter.value : 'All';
+      const sku = (productFilter && productFilter.value) ? productFilter.value : 'All';
+      const search = document.getElementById('searchInput') ? document.getElementById('searchInput').value : '';
+
+      const res = await fetch(`/api/inventory-stock?brand=${encodeURIComponent(brand)}&sku=${encodeURIComponent(sku)}&search=${encodeURIComponent(search)}`, {
+        headers: getAuthHeaders()
+      });
       const rows = await res.json();
       const tbody = document.getElementById('stockTableBody');
+      if (!tbody) return;
       tbody.innerHTML = '';
 
       const canEdit = userProfile.is_admin || userProfile.can_edit_inventory;
@@ -3313,9 +3359,112 @@
       }
     }
 
+    // --- INVENTORY TAB BRAND & PRODUCT FILTER LOGIC ---
+    function populateStockFilters() {
+      const brandSelect = document.getElementById('stockBrandFilter');
+      const productSelect = document.getElementById('stockProductFilter');
+      if (!brandSelect || !productSelect || !productsList) return;
+
+      const currentBrandVal = brandSelect.value || 'All';
+      const currentSkuVal = productSelect.value || 'All';
+
+      const brands = [...new Set(productsList.map(p => p.brand).filter(Boolean))].sort();
+      brandSelect.innerHTML = '<option value="All">All Brands</option>';
+      brands.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b;
+        opt.textContent = b;
+        if (b === currentBrandVal) opt.selected = true;
+        brandSelect.appendChild(opt);
+      });
+
+      updateStockProductDropdown(currentSkuVal);
+    }
+
+    function updateStockProductDropdown(selectSku = 'All') {
+      const brandSelect = document.getElementById('stockBrandFilter');
+      const productSelect = document.getElementById('stockProductFilter');
+      if (!brandSelect || !productSelect || !productsList) return;
+
+      const selectedBrand = brandSelect.value;
+      let filteredProducts = productsList;
+      if (selectedBrand && selectedBrand !== 'All') {
+        filteredProducts = productsList.filter(p => p.brand === selectedBrand);
+      }
+
+      productSelect.innerHTML = `<option value="All">All Products (${filteredProducts.length})</option>`;
+      filteredProducts.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.sku;
+        opt.textContent = selectedBrand === 'All' ? `[${p.brand}] ${p.name} (${p.sku})` : `${p.name} (${p.sku})`;
+        if (p.sku === selectSku) opt.selected = true;
+        productSelect.appendChild(opt);
+      });
+
+      updateStockFilterSummary(filteredProducts.length);
+    }
+
+    function updateStockFilterSummary(count) {
+      const summaryEl = document.getElementById('stockFilterSummary');
+      if (!summaryEl) return;
+      const brand = document.getElementById('stockBrandFilter') ? document.getElementById('stockBrandFilter').value : 'All';
+      const sku = document.getElementById('stockProductFilter') ? document.getElementById('stockProductFilter').value : 'All';
+
+      if (brand === 'All' && sku === 'All') {
+        summaryEl.innerHTML = `<span class="text-slate-500">Showing <strong>All Brands</strong> &bull; <strong>All Products</strong> (${count} SKUs)</span>`;
+      } else if (brand !== 'All' && sku === 'All') {
+        summaryEl.innerHTML = `<span class="text-indigo-700 font-semibold">Brand: <strong>${escapeHtml(brand)}</strong> &bull; All Products (${count})</span>`;
+      } else {
+        const p = productsList ? productsList.find(x => x.sku === sku) : null;
+        const prodName = p ? p.name : sku;
+        summaryEl.innerHTML = `<span class="text-indigo-700 font-semibold">Filtered: <strong>${escapeHtml(brand)}</strong> &rsaquo; <strong>${escapeHtml(prodName)}</strong></span>`;
+      }
+    }
+
+    function onStockBrandFilterChange() {
+      updateStockProductDropdown('All');
+      refreshStockView();
+    }
+
+    function onStockProductFilterChange() {
+      const brandSelect = document.getElementById('stockBrandFilter');
+      const productSelect = document.getElementById('stockProductFilter');
+      if (productSelect && brandSelect && productSelect.value !== 'All' && brandSelect.value === 'All') {
+        const p = productsList.find(x => x.sku === productSelect.value);
+        if (p) {
+          brandSelect.value = p.brand;
+          updateStockProductDropdown(p.sku);
+        }
+      }
+      const brand = brandSelect ? brandSelect.value : 'All';
+      const filteredCount = (brand === 'All') ? productsList.length : productsList.filter(p => p.brand === brand).length;
+      updateStockFilterSummary(filteredCount);
+      refreshStockView();
+    }
+
+    function resetStockFilters() {
+      const brandSelect = document.getElementById('stockBrandFilter');
+      if (brandSelect) brandSelect.value = 'All';
+      updateStockProductDropdown('All');
+      refreshStockView();
+    }
+
+    function refreshStockView() {
+      if (currentStockSubTab === 'ledger') {
+        loadStockBatches();
+      } else {
+        loadStock();
+      }
+    }
+
     async function loadStockBatches() {
-      const search = document.getElementById('searchInput').value;
-      const res = await fetch(`/api/inventory/batches?brand=${encodeURIComponent(currentBrand)}&search=${encodeURIComponent(search)}`, {
+      const brandFilter = document.getElementById('stockBrandFilter');
+      const productFilter = document.getElementById('stockProductFilter');
+      const brand = (brandFilter && brandFilter.value) ? brandFilter.value : 'All';
+      const sku = (productFilter && productFilter.value) ? productFilter.value : 'All';
+      const search = document.getElementById('searchInput') ? document.getElementById('searchInput').value : '';
+
+      const res = await fetch(`/api/inventory/batches?brand=${encodeURIComponent(brand)}&sku=${encodeURIComponent(sku)}&search=${encodeURIComponent(search)}`, {
         headers: getAuthHeaders()
       });
       const rows = await res.json();
@@ -3736,13 +3885,14 @@
     // --- UNIVERSAL FILTERED EXCEL EXPORT ---
     function exportCurrentViewExcel(forcedView) {
       const view = forcedView || currentTab;
-      const brand = document.getElementById('brandFilter') ? document.getElementById('brandFilter').value : 'All';
+      let brand = document.getElementById('brandFilter') ? document.getElementById('brandFilter').value : 'All';
       const search = document.getElementById('searchInput') ? document.getElementById('searchInput').value : '';
       
       let channel = 'All';
       let platform = 'All';
       let startDate = '';
       let endDate = '';
+      let sku = 'All';
 
       if (view === 'courier_costing' || view === 'courier-costing') {
         channel = document.getElementById('costingChannelFilter') ? document.getElementById('costingChannelFilter').value : 'All';
@@ -3752,11 +3902,17 @@
         platform = currentOnlinePlatform || 'All';
       } else if (view === 'dispatch') {
         platform = document.getElementById('platformFilter') ? document.getElementById('platformFilter').value : 'All';
+      } else if (view === 'stock' || view === 'batches' || view === 'baselines') {
+        const stockBrandEl = document.getElementById('stockBrandFilter');
+        const stockProductEl = document.getElementById('stockProductFilter');
+        if (stockBrandEl && stockBrandEl.value !== 'All') brand = stockBrandEl.value;
+        if (stockProductEl && stockProductEl.value !== 'All') sku = stockProductEl.value;
       }
 
       const params = new URLSearchParams({
         view: view.replace('-', '_'),
         brand: brand,
+        sku: sku,
         search: search,
         channel: channel,
         platform: platform,

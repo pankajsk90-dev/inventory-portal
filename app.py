@@ -1688,6 +1688,10 @@ def delete_adjustment(item_id):
 # --- INVENTORY STOCK & THRESHOLDS ---
 @app.route('/api/inventory-stock', methods=['GET'])
 def get_inventory_stock():
+    brand = request.args.get('brand', 'All').strip()
+    sku = request.args.get('sku', 'All').strip()
+    search = request.args.get('search', '').strip()
+    
     conn = get_db()
     cur = conn.cursor()
     query = '''
@@ -1696,9 +1700,22 @@ def get_inventory_stock():
            COALESCE(s.reorder_threshold, 0) as reorder_threshold
     FROM products p
     LEFT JOIN inventory_stock s ON p.sku = s.sku
-    ORDER BY p.brand, p.name
+    WHERE 1=1
     '''
-    rows = cur.execute(query).fetchall()
+    params = []
+    if brand and brand != 'All':
+        query += ' AND p.brand = ?'
+        params.append(brand)
+    if sku and sku != 'All':
+        query += ' AND p.sku = ?'
+        params.append(sku)
+    if search:
+        term = f'%{search}%'
+        query += ' AND (p.sku LIKE ? OR p.name LIKE ? OR p.category LIKE ?)'
+        params.extend([term, term, term])
+        
+    query += ' ORDER BY p.brand, p.name'
+    rows = cur.execute(query, params).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -1949,7 +1966,7 @@ def get_inventory_batches():
     query = 'SELECT * FROM stock_inward_batches WHERE 1=1'
     params = []
     
-    if sku:
+    if sku and sku != 'All':
         query += ' AND sku = ?'
         params.append(sku)
     if brand and brand != 'All':
@@ -2084,6 +2101,7 @@ def export_current_view():
     view = request.args.get('view', 'master').lower()
     platform = request.args.get('platform', 'All')
     brand = request.args.get('brand', 'All')
+    sku = request.args.get('sku', 'All').strip()
     search = request.args.get('search', '').strip()
     channel = request.args.get('channel', 'All')
     start_date = request.args.get('start_date', '').strip()
@@ -2142,7 +2160,7 @@ def export_current_view():
     elif view in ['batches', 'inward_batches']:
         ws.title = "Stock Inward Batches"
         ws.cell(1, 1, "📦 INVENTORY INWARD LOG (DATE-WISE & BATCH-WISE)").font = title_font
-        ws.cell(2, 1, f"Filtered by Brand: {brand} | Search: {search or 'None'}")
+        ws.cell(2, 1, f"Filtered by Brand: {brand} | SKU: {sku} | Search: {search or 'None'}")
         
         headers = ["ID", "Inward Date", "Batch No / Lot #", "SKU", "Product Name", "Brand", "Quantity Added", "Mfg Date", "Expiry Date", "Supplier / PO Ref", "Notes", "Added By", "Created At"]
         for c_idx, h in enumerate(headers, 1):
@@ -2157,6 +2175,9 @@ def export_current_view():
         if brand and brand != 'All':
             b_query += ' AND brand = ?'
             b_params.append(brand)
+        if sku and sku != 'All':
+            b_query += ' AND sku = ?'
+            b_params.append(sku)
         if search:
             b_query += ' AND (batch_no LIKE ? OR sku LIKE ? OR product_name LIKE ? OR supplier_po_ref LIKE ?)'
             term = f'%{search}%'
@@ -2170,6 +2191,51 @@ def export_current_view():
                 r['id'], r['inward_date'], r['batch_no'], r['sku'], r['product_name'], r['brand'],
                 r['quantity_added'], r['mfg_date'], r['expiry_date'], r['supplier_po_ref'], r['notes'],
                 r['added_by'], r['created_at']
+            ]
+            for c_idx, val in enumerate(row_vals, 1):
+                ws.cell(r_idx, c_idx, val).border = thin_border
+
+    elif view in ['stock', 'baselines', 'inventory_stock']:
+        ws.title = "Current Stock & Thresholds"
+        ws.cell(1, 1, "📦 CENTRAL INVENTORY STOCK & REORDER ALERTS").font = title_font
+        ws.cell(2, 1, f"Filtered by Brand: {brand} | SKU: {sku} | Search: {search or 'None'}")
+        
+        headers = ["SKU", "Product Name", "Brand", "Category", "Total Central Inventory", "Reorder Alert Threshold", "Stock Status"]
+        for c_idx, h in enumerate(headers, 1):
+            cell = ws.cell(4, c_idx, h)
+            cell.fill = PatternFill(start_color='1E3A8A', end_color='1E3A8A', fill_type='solid')
+            cell.font = header_font
+            
+        conn = get_db()
+        cur = conn.cursor()
+        s_query = '''
+        SELECT p.sku, p.name as product_name, p.brand, p.category, 
+               COALESCE(s.total_inventory, 0) as total_inventory,
+               COALESCE(s.reorder_threshold, 0) as reorder_threshold
+        FROM products p
+        LEFT JOIN inventory_stock s ON p.sku = s.sku
+        WHERE 1=1
+        '''
+        s_params = []
+        if brand and brand != 'All':
+            s_query += ' AND p.brand = ?'
+            s_params.append(brand)
+        if sku and sku != 'All':
+            s_query += ' AND p.sku = ?'
+            s_params.append(sku)
+        if search:
+            term = f'%{search}%'
+            s_query += ' AND (p.sku LIKE ? OR p.name LIKE ? OR p.category LIKE ?)'
+            s_params.extend([term, term, term])
+        s_query += ' ORDER BY p.brand, p.name'
+        s_rows = cur.execute(s_query, s_params).fetchall()
+        conn.close()
+        
+        for r_idx, r in enumerate(s_rows, 5):
+            status = 'Low Stock Alert' if r['total_inventory'] <= r['reorder_threshold'] else 'OK'
+            row_vals = [
+                r['sku'], r['product_name'], r['brand'], r['category'],
+                r['total_inventory'], r['reorder_threshold'], status
             ]
             for c_idx, val in enumerate(row_vals, 1):
                 ws.cell(r_idx, c_idx, val).border = thin_border
