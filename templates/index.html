@@ -2900,12 +2900,44 @@
                 <button onclick="openEditStockModal('${r.sku}', '${escapeHtml(r.product_name)}', ${r.total_inventory}, ${r.reorder_threshold})" class="text-slate-700 hover:text-slate-900 font-semibold text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded transition flex items-center gap-1" title="Directly edit total baseline stock or alert threshold">
                   <i class="fa-solid fa-pen text-[10px]"></i> Edit Baseline
                 </button>
+                <button onclick="deleteProduct('${r.sku}', '${escapeHtml(r.product_name)}')" class="text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded transition flex items-center gap-1" title="Remove this product from portal">
+                  <i class="fa-solid fa-trash-can text-[11px]"></i>
+                </button>
               </div>
             ` : '<span class="text-slate-400 text-[11px]"><i class="fa-solid fa-lock"></i> Locked</span>'}
           </td>
         `;
         tbody.appendChild(tr);
       });
+    }
+
+    async function deleteProduct(sku, name) {
+      if (!userProfile.is_admin && !userProfile.can_edit_inventory) {
+        alert("Permission Denied: Only Inventory Leads or Admins can remove products.");
+        return;
+      }
+      if (!confirm(`Are you sure you want to remove product '${name}' (${sku}) from the portal?\n\nThis will remove it from the catalog, master view, and central stock tracking.`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/products/${encodeURIComponent(sku)}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Failed to remove product.');
+          return;
+        }
+        alert(data.message || 'Product removed successfully.');
+        await loadBrands();
+        await loadProducts();
+        await loadStock();
+        await loadMaster();
+        await loadStats();
+      } catch (err) {
+        alert('Network error while removing product.');
+      }
     }
 
     // --- TAB 8: AUDIT TRAIL ---

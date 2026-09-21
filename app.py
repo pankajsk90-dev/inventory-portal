@@ -751,6 +751,51 @@ def handle_products():
     conn.close()
     return jsonify([dict(r) for r in rows])
 
+@app.route('/api/products/<path:sku>', methods=['DELETE'])
+def delete_product(sku):
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    if not (profile['is_admin'] or profile['can_edit_inventory']):
+        return jsonify({'error': 'Permission Denied: Only Inventory Leads or Admins can remove products.'}), 403
+        
+    sku = sku.strip()
+    conn = get_db()
+    cur = conn.cursor()
+    prod = cur.execute('SELECT sku, name, brand FROM products WHERE sku = ?', (sku,)).fetchone()
+    if not prod:
+        conn.close()
+        return jsonify({'error': f"Product with SKU '{sku}' not found."}), 404
+        
+    name = prod['name']
+    brand = prod['brand']
+    
+    # Delete from products and inventory_stock
+    cur.execute('DELETE FROM inventory_stock WHERE sku = ?', (sku,))
+    cur.execute('DELETE FROM products WHERE sku = ?', (sku,))
+    
+    cascade = request.args.get('cascade', '').lower() == 'true'
+    if cascade:
+        cur.execute('DELETE FROM stock_inward_batches WHERE sku = ?', (sku,))
+        cur.execute('DELETE FROM dispatch_online WHERE sku = ?', (sku,))
+        cur.execute('DELETE FROM dispatch_gt_mt WHERE sku = ?', (sku,))
+        cur.execute('DELETE FROM adjustments WHERE sku = ?', (sku,))
+        cur.execute('DELETE FROM platform_sales_data WHERE sku = ?', (sku,))
+        
+    record_audit(
+        conn,
+        'DELETE_PRODUCT',
+        'Products & Stock Catalog',
+        f"SKU {sku} | {brand}",
+        f"Removed product '{name}' ({sku}) from portal."
+    )
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'message': f"Product '{name}' ({sku}) has been successfully removed from the portal."
+    })
+
 @app.route('/api/brands')
 def get_brands():
     conn = get_db()
