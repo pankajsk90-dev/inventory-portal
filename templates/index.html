@@ -674,9 +674,6 @@
         </div>
       </div>
 
-      <!-- TAB 7: INVENTORY STOCK & THRESHOLDS (INVENTORY LEAD ONLY) -->
-      <div id="view-stock" class="tab-view flex-1 flex flex-col p-4 overflow-hidden hidden">
-        <div class="flex items-center justify-between mb-2">
       <!-- TAB: COURIER COSTING & LOGISTICS EXPENSES (MATCHES GOOGLE SHEET + CHARGED WEIGHT) -->
       <div id="view-courier-costing" class="tab-view flex-1 flex flex-col p-4 overflow-hidden hidden space-y-3">
         <!-- TOP SUMMARY KPI STRIP -->
@@ -804,10 +801,13 @@
             </button>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <span id="stockEditNotice" class="text-[11px] bg-white text-slate-600 font-semibold px-2.5 py-1 rounded-lg border border-slate-200"></span>
             <button onclick="openInwardModal()" id="btnInwardStock" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5 transition">
-              <i class="fa-solid fa-plus"></i> + Inward New Stock Batch
+              <i class="fa-solid fa-plus"></i> + Inward Stock Batch
+            </button>
+            <button onclick="openAddProductModal()" id="btnAddProduct" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-square-plus"></i> + Add New Product / SKU
             </button>
           </div>
         </div>
@@ -840,6 +840,19 @@
 
         <!-- SUB-VIEW 2: CURRENT STOCK BASELINES & THRESHOLDS -->
         <div id="stockSubView-baselines" class="flex-1 flex flex-col overflow-hidden hidden">
+          <div class="mb-2 flex items-center justify-between text-xs px-1 flex-wrap gap-2">
+            <span class="text-slate-600 font-medium flex items-center gap-1.5">
+              <i class="fa-solid fa-circle-info text-indigo-500"></i> Click <strong>Inward Batch</strong> or <strong>Edit Baseline</strong> on any product to update stock.
+            </span>
+            <div class="flex items-center gap-2">
+              <button onclick="openInwardModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-xs flex items-center gap-1 transition">
+                <i class="fa-solid fa-plus"></i> Inward Batch
+              </button>
+              <button onclick="openAddProductModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-xs flex items-center gap-1 transition">
+                <i class="fa-solid fa-square-plus"></i> + Add Product / SKU
+              </button>
+            </div>
+          </div>
           <div class="table-container overflow-auto border border-slate-200 rounded-xl shadow-sm flex-1">
             <table class="w-full text-xs text-left border-collapse">
               <thead class="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-10 shadow-sm">
@@ -1408,6 +1421,8 @@
         </div>
       </form>
     </div>
+  </div>
+
   <!-- MODAL: INWARD NEW STOCK BATCH (DATE-WISE & BATCH-WISE) -->
   <div id="modalInwardBatch" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden">
@@ -1435,7 +1450,12 @@
         </div>
 
         <div>
-          <label class="block font-medium text-slate-700 mb-1">Select Product SKU *</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block font-medium text-slate-700">Select Product SKU *</label>
+            <span class="text-[11px] text-slate-500">
+              Not listed? <a href="javascript:void(0)" onclick="closeModal('modalInwardBatch'); openAddProductModal();" class="text-indigo-600 hover:underline font-bold">+ Register New SKU</a>
+            </span>
+          </div>
           <select id="inward_product_select" required onchange="syncInwardProduct(this)" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 outline-none bg-white font-medium"></select>
           <input type="hidden" id="inward_sku">
           <input type="hidden" id="inward_product_name">
@@ -1472,6 +1492,66 @@
           <button type="button" onclick="closeModal('modalInwardBatch')" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium">Cancel</button>
           <button type="submit" id="btnSubmitInward" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
             <i class="fa-solid fa-check"></i> Inward Batch & Update Stock
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD NEW PRODUCT / SKU TO INVENTORY -->
+  <div id="modalAddProduct" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+      <div class="bg-emerald-600 px-5 py-3.5 text-white flex items-center justify-between">
+        <h3 class="font-bold text-sm flex items-center gap-2">
+          <i class="fa-solid fa-square-plus"></i> Add New Product / SKU to Inventory
+        </h3>
+        <button onclick="closeModal('modalAddProduct')" class="text-white/80 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="formAddProduct" onsubmit="submitAddProduct(event)" class="p-5 space-y-3.5 text-xs">
+        <div class="p-2.5 bg-emerald-50 border border-emerald-100 rounded-lg text-[11px] text-emerald-900 flex items-center gap-2">
+          <i class="fa-solid fa-circle-info text-emerald-600"></i>
+          <span>Registers a new product/SKU and initializes its Central Total Inventory and Reorder Alert Threshold.</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">SKU Code *</label>
+            <input type="text" id="new_prod_sku" required placeholder="e.g. TEA-MASALA-250G" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-mono uppercase font-bold text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500">
+          </div>
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">Brand *</label>
+            <input type="text" id="new_prod_brand" list="brandsDatalist" required placeholder="e.g. Brand A" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500">
+            <datalist id="brandsDatalist"></datalist>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Product Name *</label>
+          <input type="text" id="new_prod_name" required placeholder="e.g. Masala Chai 250g Jar" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500">
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Category</label>
+          <input type="text" id="new_prod_category" placeholder="e.g. Beverages, Snacks, Personal Care" value="General" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-emerald-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+          <div>
+            <label class="block font-bold text-indigo-900 mb-1">Initial Total Inventory *</label>
+            <input type="number" min="0" id="new_prod_inventory" required value="0" placeholder="Units" class="w-full border border-indigo-300 rounded-lg px-3 py-1.5 font-bold text-indigo-900 bg-white outline-none">
+            <span class="text-[10px] text-slate-400 mt-0.5 block">Starting stock in warehouse</span>
+          </div>
+          <div>
+            <label class="block font-bold text-rose-800 mb-1">Reorder Alert Threshold *</label>
+            <input type="number" min="0" id="new_prod_threshold" required value="20" placeholder="Units" class="w-full border border-rose-300 rounded-lg px-3 py-1.5 font-bold text-rose-700 bg-white outline-none">
+            <span class="text-[10px] text-slate-400 mt-0.5 block">Low stock warning level</span>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 flex justify-end space-x-2">
+          <button type="button" onclick="closeModal('modalAddProduct')" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium">Cancel</button>
+          <button type="submit" id="btnSubmitAddProduct" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
+            <i class="fa-solid fa-plus"></i> Register Product & Stock
           </button>
         </div>
       </form>
@@ -1747,12 +1827,21 @@
       }
 
       const stockNotice = document.getElementById('stockEditNotice');
+      const btnInward = document.getElementById('btnInwardStock');
+      const btnAddProd = document.getElementById('btnAddProduct');
+      const canManageInventory = userProfile.is_admin || userProfile.can_edit_inventory;
       if (stockNotice) {
-        if (userProfile.can_edit_inventory) {
-          stockNotice.innerHTML = `<span class="text-emerald-700 font-semibold"><i class="fa-solid fa-pen-to-square"></i> Authorized: You can edit baseline stock and alert thresholds</span>`;
+        if (canManageInventory) {
+          stockNotice.innerHTML = `<span class="text-emerald-700 font-semibold"><i class="fa-solid fa-circle-check"></i> Authorized: You can inward batches, add products, and edit baselines</span>`;
         } else {
-          stockNotice.innerHTML = `<span class="text-slate-500 font-medium"><i class="fa-solid fa-lock text-slate-400"></i> Read-Only. Editable exclusively by Inventory Lead (${permissionsConfig.roles.INVENTORY_MANAGER ? permissionsConfig.roles.INVENTORY_MANAGER.email : 'inventory@company.com'})</span>`;
+          stockNotice.innerHTML = `<span class="text-slate-500 font-medium"><i class="fa-solid fa-lock text-slate-400"></i> Read-Only (Managed by Inventory Lead: ${permissionsConfig.roles && permissionsConfig.roles.INVENTORY_MANAGER ? permissionsConfig.roles.INVENTORY_MANAGER.email : 'inventory@company.com'})</span>`;
         }
+      }
+      if (btnInward) {
+        btnInward.style.display = canManageInventory ? 'inline-flex' : 'none';
+      }
+      if (btnAddProd) {
+        btnAddProd.style.display = canManageInventory ? 'inline-flex' : 'none';
       }
 
       updateDispatchActionButtons();
@@ -2790,7 +2879,7 @@
       const tbody = document.getElementById('stockTableBody');
       tbody.innerHTML = '';
 
-      const canEdit = userProfile.can_edit_inventory;
+      const canEdit = userProfile.is_admin || userProfile.can_edit_inventory;
 
       rows.forEach(r => {
         const tr = document.createElement('tr');
@@ -2802,11 +2891,16 @@
           <td class="py-2.5 px-3 text-slate-500">${r.category || '-'}</td>
           <td class="py-2.5 px-3 text-right font-mono font-bold text-indigo-900 bg-indigo-50/40">${r.total_inventory.toLocaleString()}</td>
           <td class="py-2.5 px-3 text-right font-mono font-bold text-rose-700 bg-rose-50/40">${r.reorder_threshold.toLocaleString()}</td>
-          <td class="py-2.5 px-2 text-center">
+          <td class="py-2.5 px-2 text-center whitespace-nowrap">
             ${canEdit ? `
-              <button onclick="openEditStockModal('${r.sku}', '${escapeHtml(r.product_name)}', ${r.total_inventory}, ${r.reorder_threshold})" class="text-indigo-600 hover:text-indigo-800 font-semibold text-xs flex items-center justify-center gap-1 mx-auto bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded transition">
-                <i class="fa-solid fa-pen"></i> Edit
-              </button>
+              <div class="flex items-center justify-center gap-1.5">
+                <button onclick="openInwardModal('${r.sku}')" class="text-indigo-700 hover:text-indigo-900 font-bold text-xs bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded transition flex items-center gap-1" title="Inward new batch for this SKU">
+                  <i class="fa-solid fa-plus text-[10px]"></i> Inward Batch
+                </button>
+                <button onclick="openEditStockModal('${r.sku}', '${escapeHtml(r.product_name)}', ${r.total_inventory}, ${r.reorder_threshold})" class="text-slate-700 hover:text-slate-900 font-semibold text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded transition flex items-center gap-1" title="Directly edit total baseline stock or alert threshold">
+                  <i class="fa-solid fa-pen text-[10px]"></i> Edit Baseline
+                </button>
+              </div>
             ` : '<span class="text-slate-400 text-[11px]"><i class="fa-solid fa-lock"></i> Locked</span>'}
           </td>
         `;
@@ -3239,7 +3333,7 @@
       });
     }
 
-    function openInwardModal() {
+    function openInwardModal(preselectedSku = null) {
       if (!userProfile.is_admin && !userProfile.can_edit_inventory) {
         alert("Permission Denied: Only Inventory Leads or Admins can inward stock batches.");
         return;
@@ -3252,8 +3346,19 @@
         opt.textContent = `[${p.brand}] ${p.name} (${p.sku})`;
         opt.setAttribute('data-name', p.name);
         opt.setAttribute('data-brand', p.brand);
+        if (preselectedSku && p.sku === preselectedSku) {
+          opt.selected = true;
+        }
         select.appendChild(opt);
       });
+
+      if (preselectedSku) {
+        syncInwardProduct(select);
+      } else {
+        document.getElementById('inward_sku').value = '';
+        document.getElementById('inward_product_name').value = '';
+        document.getElementById('inward_brand').value = '';
+      }
 
       document.getElementById('inward_date').value = new Date().toISOString().split('T')[0];
       document.getElementById('inward_batch_no').value = '';
@@ -3342,6 +3447,77 @@
       await loadStock();
       await loadStats();
       await loadMaster();
+    }
+
+    // --- ADD PRODUCT / REGISTER NEW SKU ---
+    function openAddProductModal() {
+      if (!userProfile.is_admin && !userProfile.can_edit_inventory) {
+        alert("Permission Denied: Only Inventory Leads or Admins can register new products/SKUs.");
+        return;
+      }
+      
+      const dl = document.getElementById('brandsDatalist');
+      if (dl && productsList) {
+        const uniqueBrands = [...new Set(productsList.map(p => p.brand).filter(Boolean))];
+        dl.innerHTML = uniqueBrands.map(b => `<option value="${escapeHtml(b)}"></option>`).join('');
+      }
+      
+      document.getElementById('new_prod_sku').value = '';
+      document.getElementById('new_prod_brand').value = (currentBrand && currentBrand !== 'All') ? currentBrand : '';
+      document.getElementById('new_prod_name').value = '';
+      document.getElementById('new_prod_category').value = 'General';
+      document.getElementById('new_prod_inventory').value = '0';
+      document.getElementById('new_prod_threshold').value = '20';
+      
+      openModal('modalAddProduct');
+    }
+
+    async function submitAddProduct(e) {
+      e.preventDefault();
+      const sku = document.getElementById('new_prod_sku').value.trim().toUpperCase();
+      const brand = document.getElementById('new_prod_brand').value.trim();
+      const name = document.getElementById('new_prod_name').value.trim();
+      const category = document.getElementById('new_prod_category').value.trim() || 'General';
+      const initial_inventory = parseInt(document.getElementById('new_prod_inventory').value || 0);
+      const reorder_threshold = parseInt(document.getElementById('new_prod_threshold').value || 20);
+
+      if (!sku || !brand || !name) {
+        alert("Please fill in SKU, Brand, and Product Name.");
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitAddProduct');
+      const orig = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Registering...';
+
+      try {
+        const res = await fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ sku, brand, name, category, initial_inventory, reorder_threshold })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Failed to add product');
+          return;
+        }
+
+        closeModal('modalAddProduct');
+        alert(data.message || `Product ${name} (${sku}) created successfully!`);
+        
+        await loadBrands();
+        await loadProducts();
+        await loadStock();
+        await loadStockBatches();
+        await loadMaster();
+        await loadStats();
+      } catch (err) {
+        alert('Network error while registering product.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
     }
 
     // --- COURIER COSTING & FREIGHT EXPENSES ---

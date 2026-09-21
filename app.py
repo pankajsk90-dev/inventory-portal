@@ -685,8 +685,66 @@ def get_gtmt_detail():
         'dispatches': disp_rows
     })
 
-@app.route('/api/products')
-def get_products():
+@app.route('/api/products', methods=['GET', 'POST'])
+def handle_products():
+    if request.method == 'POST':
+        user_email, user_name = get_user_info()
+        profile = get_user_profile(user_email)
+        if not (profile['is_admin'] or profile['can_edit_inventory']):
+            return jsonify({'error': 'Permission Denied: Only Inventory Leads or Admins can add new products.'}), 403
+            
+        data = request.json or request.form
+        sku = data.get('sku', '').strip().upper()
+        name = data.get('name', '').strip()
+        brand = data.get('brand', '').strip()
+        category = data.get('category', 'General').strip() or 'General'
+        try:
+            initial_inventory = int(data.get('initial_inventory', 0))
+        except:
+            initial_inventory = 0
+        try:
+            reorder_threshold = int(data.get('reorder_threshold', 20))
+        except:
+            reorder_threshold = 20
+        
+        if not sku:
+            return jsonify({'error': 'SKU code is required.'}), 400
+        if not name:
+            return jsonify({'error': 'Product name is required.'}), 400
+        if not brand:
+            return jsonify({'error': 'Brand name is required.'}), 400
+            
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO products (sku, brand, name, category)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(sku) DO UPDATE SET
+                brand = excluded.brand,
+                name = excluded.name,
+                category = excluded.category
+        ''', (sku, brand, name, category))
+        
+        cur.execute('''
+            INSERT INTO inventory_stock (sku, total_inventory, reorder_threshold)
+            VALUES (?, ?, ?)
+            ON CONFLICT(sku) DO UPDATE SET
+                total_inventory = total_inventory + excluded.total_inventory,
+                reorder_threshold = excluded.reorder_threshold
+        ''', (sku, initial_inventory, reorder_threshold))
+        
+        record_audit(
+            conn,
+            'ADD_NEW_PRODUCT',
+            'Inventory Stock & Batch Log',
+            f'SKU {sku} | {brand}',
+            f"Added new product '{name}' ({sku}) with initial stock {initial_inventory} and threshold {reorder_threshold}"
+        )
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'message': f"Product '{name}' ({sku}) successfully registered with {initial_inventory} units!"})
+
     conn = get_db()
     cur = conn.cursor()
     rows = cur.execute('SELECT sku, name, category, brand FROM products ORDER BY brand, name').fetchall()
@@ -1916,6 +1974,7 @@ def add_inventory_batch():
         (inward_date, batch_no, sku, product_name, brand, quantity_added, mfg_date, expiry_date, supplier_po_ref, notes, added_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (inward_date, batch_no, sku, product_name, brand, quantity_added, mfg_date, expiry_date, supplier_po_ref, notes, user_email))
+    new_batch_id = cur.lastrowid
     
     stk_row = cur.execute('SELECT total_inventory FROM inventory_stock WHERE sku = ?', (sku,)).fetchone()
     if stk_row:
@@ -1935,6 +1994,7 @@ def add_inventory_batch():
     
     return jsonify({
         'status': 'success',
+        'batch_id': new_batch_id,
         'message': f"Successfully inwarded {quantity_added} units for SKU '{sku}' under batch '{batch_no}'."
     })
 
