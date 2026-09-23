@@ -9,13 +9,18 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'inventory-portal-secure-key-prod-2024')
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inventory.db')
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'dispatch_docs')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 PLATFORMS = [
@@ -233,7 +238,8 @@ def get_user_info():
         email = request.args.get('user_email', '').strip().lower()
     if not email and request.form:
         email = request.form.get('user_email', '').strip().lower()
-    email = email or 'admin@company.com'
+    # Defensive security: Unauthenticated or direct anonymous requests default to Guest Viewer (read-only)
+    email = email or 'viewer@company.com'
     
     name = request.headers.get('X-User-Name', '').strip()
     if not name:
@@ -338,6 +344,17 @@ def record_audit(conn, action_type, sheet_name, entity_ref, edit_summary, detail
     ''', (
         now_str, action_type, details or edit_summary, user_name, user_email, action_type, sheet_name, entity_ref, edit_summary
     ))
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({'error': 'File too large. Maximum allowed upload size is 16 MB.'}), 413
 
 @app.route('/')
 def index():
@@ -2712,6 +2729,7 @@ def export_excel():
     )
 
 if __name__ == '__main__':
-    PORT = 8765
-    print(f"Starting Inventory Management System on http://127.0.0.1:{PORT}")
-    app.run(host='127.0.0.1', port=PORT, debug=False)
+    PORT = int(os.environ.get('PORT', 8765))
+    HOST = os.environ.get('HOST', '0.0.0.0' if os.environ.get('PORT') else '127.0.0.1')
+    print(f"Starting Inventory Management System on http://{HOST}:{PORT}")
+    app.run(host=HOST, port=PORT, debug=False)
