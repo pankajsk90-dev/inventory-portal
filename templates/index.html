@@ -44,6 +44,7 @@
           <select id="currentUserSelect" onchange="onUserPersonChange()" class="bg-transparent font-bold text-slate-900 outline-none cursor-pointer">
             <option value="admin@company.com" data-name="Admin Manager">👑 Admin Manager (Full System Access)</option>
             <option value="inventory@company.com" data-name="Inventory Lead">📦 Inventory Lead (Master Stock Only)</option>
+            <option value="joint_gt@company.com" data-name="Inventory & GT Lead">📦🏪 Joint Lead (Main Inventory & GT Dispatch)</option>
             <option value="dispatch_online@company.com" data-name="Online Dispatch Lead">🌐 Online Dispatch Lead (Online Channels)</option>
             <option value="dispatch_gt@company.com" data-name="GT Dispatch Lead">🏪 GT Dispatch Lead (General Trade)</option>
             <option value="dispatch_mt@company.com" data-name="MT Dispatch Lead">🏢 MT Dispatch Lead (Modern Trade)</option>
@@ -2034,6 +2035,12 @@
       if (userProfile.is_admin) {
         badge.className = 'bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded-full';
         scopeText.innerHTML = `👑 <strong>Full Administrator Access:</strong> You can edit all platforms, inventory baselines, courier charges, and sales uploads.`;
+      } else if (userProfile.can_edit_inventory && userProfile.can_edit_dispatch_gt && !userProfile.can_edit_dispatch_online && !userProfile.can_edit_dispatch_mt) {
+        badge.className = 'bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded-full';
+        scopeText.innerHTML = `📦🏪 <strong>Inventory & GT Dispatch Lead:</strong> Authorized to manage <strong>Master Baseline Stock, Inward Batches</strong>, and log/manage <strong>General Trade (GT) Dispatches</strong>.`;
+      } else if (userProfile.can_edit_inventory && userProfile.can_edit_dispatch) {
+        badge.className = 'bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded-full';
+        scopeText.innerHTML = `📦📋 <strong>Inventory & All-Dispatch Lead:</strong> Authorized to manage <strong>Master Baseline Stock</strong> and log shipments across <strong>All Channels</strong>.`;
       } else if (userProfile.can_edit_inventory) {
         badge.className = 'bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full';
         scopeText.innerHTML = `📦 <strong>1) Inventory Lead:</strong> Authorized to update <strong>Master Sheet Baseline Stock & Incoming Stock</strong> only. Dispatches and courier tracking are locked.`;

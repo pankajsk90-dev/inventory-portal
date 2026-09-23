@@ -41,6 +41,7 @@ DEFAULT_NAMES = {
     'person2@company.com': 'Person 2: Rahul (Blinkit & BigBasket Logistics)',
     'person3@company.com': 'Person 3: Amit (Amazon & Marketplaces Logistics)',
     'b2b@company.com': 'Person 4: Suresh (GT & MT B2B Trade Logistics)',
+    'joint_gt@company.com': 'Inventory & GT Dispatch Lead (Joint Role)',
     'viewer@company.com': 'Guest Viewer (Read-Only)'
 }
 
@@ -262,16 +263,18 @@ def get_user_profile(user_email=None):
     assignments = cur.execute('SELECT * FROM platform_assignments').fetchall()
     conn.close()
     
-    is_admin = (user_email == roles.get('ADMIN', ''))
-    can_edit_inventory = is_admin or (user_email == roles.get('INVENTORY_MANAGER', ''))
-    
     def parse_emails(email_str):
         if not email_str:
             return set()
         return {e.strip().lower() for e in email_str.split(',') if e.strip()}
 
+    admin_emails = parse_emails(roles.get('ADMIN', ''))
+    inventory_emails = parse_emails(roles.get('INVENTORY_MANAGER', ''))
+    inventory_emails.add('joint_gt@company.com')
+
     online_dispatch_emails = parse_emails(roles.get('DISPATCH_ONLINE_EMAILS', ''))
     gt_dispatch_emails = parse_emails(roles.get('DISPATCH_GT_EMAILS', ''))
+    gt_dispatch_emails.add('joint_gt@company.com')
     mt_dispatch_emails = parse_emails(roles.get('DISPATCH_MT_EMAILS', ''))
     
     general_dispatch_mgr = roles.get('DISPATCH_MANAGER', '').strip().lower()
@@ -280,6 +283,8 @@ def get_user_profile(user_email=None):
         gt_dispatch_emails.add(general_dispatch_mgr)
         mt_dispatch_emails.add(general_dispatch_mgr)
 
+    is_admin = (user_email in admin_emails) or (user_email == roles.get('ADMIN', '').lower().strip())
+    can_edit_inventory = is_admin or (user_email in inventory_emails)
     can_edit_dispatch_online = is_admin or (user_email in online_dispatch_emails)
     can_edit_dispatch_gt = is_admin or (user_email in gt_dispatch_emails)
     can_edit_dispatch_mt = is_admin or (user_email in mt_dispatch_emails)
@@ -294,6 +299,10 @@ def get_user_profile(user_email=None):
         
     if is_admin:
         role_title = 'Admin Manager (Full Access)'
+    elif can_edit_inventory and can_edit_dispatch_gt and not can_edit_dispatch_online and not can_edit_dispatch_mt:
+        role_title = 'Inventory & GT Dispatch Lead'
+    elif can_edit_inventory and can_edit_dispatch:
+        role_title = 'Inventory & All-Dispatch Lead'
     elif can_edit_inventory:
         role_title = 'Inventory Lead (Master Stock & Incoming Stock)'
     elif can_edit_dispatch_online and can_edit_dispatch_gt and can_edit_dispatch_mt:
