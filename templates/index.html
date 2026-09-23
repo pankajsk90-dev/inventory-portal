@@ -22,12 +22,12 @@
   <!-- TOP APP HEADER -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
     <div class="max-w-[1740px] mx-auto px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
-      <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-100">
+      <div class="flex items-center space-x-3 cursor-pointer group" onclick="switchTab('hub')" title="Return to Portal Hub">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-100 group-hover:bg-indigo-700 transition">
           <i class="fa-solid fa-boxes-stacked text-lg"></i>
         </div>
         <div>
-          <h1 class="font-bold text-lg text-slate-900 leading-tight flex items-center gap-2">
+          <h1 class="font-bold text-lg text-slate-900 leading-tight flex items-center gap-2 group-hover:text-indigo-600 transition">
             Multi-Brand Inventory & Logistics Portal
             <span class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full border border-emerald-200">Live Sync</span>
           </h1>
@@ -152,88 +152,288 @@
       </div>
     </div>
 
-    <!-- TABS NAVIGATION & SEARCH BAR (TWO-TIER VISIBLE TABS) -->
+    <!-- MAIN WORKSPACE & MODULE CONTAINER -->
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
-      <div class="border-b border-slate-200 px-4 py-2.5 bg-slate-50/80 space-y-2">
-        <!-- ROW 1: CORE OPERATIONS & CHANNELS -->
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <nav class="flex items-center space-x-1 overflow-x-auto pb-0.5" aria-label="Tier 1 Tabs">
-            <button onclick="switchTab('master')" id="tabBtn-master" class="tab-btn px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-table"></i> 🌿 Master Summary
-            </button>
+      <!-- WORKSPACE HEADER (VISIBLE WHEN INSIDE A MODULE) -->
+      <div id="workspaceHeader" class="hidden border-b border-slate-200 px-4 py-2.5 bg-slate-50/90 flex items-center justify-between flex-wrap gap-2.5">
+        <!-- LEFT: BACK TO HUB & MODULE TITLE -->
+        <div class="flex items-center gap-3 flex-wrap">
+          <button onclick="switchTab('hub')" class="bg-white hover:bg-slate-100 text-slate-700 font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-xs flex items-center gap-1.5 shadow-2xs transition hover:border-slate-400" title="Return to Portal Hub Overview">
+            <i class="fa-solid fa-arrow-left text-slate-400"></i> Back to Hub
+          </button>
+          
+          <div class="h-4 w-px bg-slate-200 hidden sm:block"></div>
 
-            <button onclick="switchTab('online-platforms')" id="tabBtn-online-platforms" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-bolt text-emerald-500"></i> ⚡ Online Platforms
-              <span class="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded-full font-bold">10 Channels</span>
-            </button>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-slate-400 font-medium hidden md:inline">Portal Hub /</span>
+            <div id="workspaceBreadcrumb" class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+              <!-- Populated dynamically via JS -->
+            </div>
+          </div>
 
-            <button onclick="switchTab('gt')" id="tabBtn-gt" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-shop text-amber-500"></i> 🏪 GT
-            </button>
-
-            <button onclick="switchTab('mt')" id="tabBtn-mt" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-building text-blue-500"></i> 🏢 MT
-            </button>
-
-            <button onclick="switchTab('dispatch')" id="tabBtn-dispatch" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-truck-fast text-indigo-600"></i> 🚚 Dispatch
-              <span class="bg-indigo-100 text-indigo-800 text-[10px] px-1.5 py-0.2 rounded-full font-bold">Online, GT, MT</span>
-            </button>
-
-            <button onclick="switchTab('courier-costing')" id="tabBtn-courier-costing" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-teal-100/70 hover:text-teal-900 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-calculator text-teal-600"></i> 💰 Courier Costing
-              <span class="bg-teal-100 text-teal-800 text-[10px] px-1.5 py-0.2 rounded-full font-bold">Charged Wt</span>
-            </button>
-          </nav>
-
-          <!-- QUICK EXPORT CURRENT VIEW BUTTON -->
-          <div class="flex items-center space-x-2">
-            <button onclick="exportCurrentViewExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5 transition" title="Export currently active filtered view to Excel">
-              <i class="fa-solid fa-file-arrow-down"></i> <span>Export Current View (.xlsx)</span>
-            </button>
+          <!-- COMPACT MODULE SELECTOR (FAST JUMP) -->
+          <div class="relative">
+            <select id="workspaceModuleSelect" onchange="switchTab(this.value)" class="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1 font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-2xs hover:bg-slate-50 transition" title="Quickly switch to another module">
+              <option value="master">🌿 Master Summary</option>
+              <option value="online-platforms">⚡ Online Platforms (10 Channels)</option>
+              <option value="gt">🏪 GT (General Trade)</option>
+              <option value="mt">🏢 MT (Modern Trade)</option>
+              <option value="dispatch">🚚 Dispatch Operations</option>
+              <option value="courier-costing">💰 Courier Costing & Weight Audit</option>
+              <option value="stock">📦 Inventory Stock & Batch Log</option>
+              <option value="sales">📈 Sales & Pipeline Stock</option>
+              <option value="adjustments">📉 Non-Dispatch Adjustments</option>
+              <option value="audit">🕒 Audit Trail</option>
+            </select>
           </div>
         </div>
 
-        <!-- ROW 2: INVENTORY, ANALYTICS & GOVERNANCE -->
-        <div class="flex items-center justify-between flex-wrap gap-2 pt-1.5 border-t border-slate-200/70">
-          <nav class="flex items-center space-x-1 overflow-x-auto pb-0.5" aria-label="Tier 2 Tabs">
-            <button onclick="switchTab('stock')" id="tabBtn-stock" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-boxes-stacked text-blue-600"></i> 📦 Inventory Stock & Batch Log
-            </button>
+        <!-- RIGHT: SEARCH, PLATFORM FILTER & EXPORT -->
+        <div class="flex items-center space-x-2 flex-wrap">
+          <div id="platformFilterWrapper" class="hidden">
+            <select id="platformFilter" onchange="onPlatformFilterChange()" class="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500">
+              <option value="All">All Platforms</option>
+              {% for p in platforms %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2 text-slate-400 text-xs"></i>
+            <input type="text" id="searchInput" oninput="onSearchChange()" placeholder="Search SKU, PO, Courier, LR..." class="text-xs pl-7 pr-3 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 w-52 shadow-2xs">
+          </div>
+          <button onclick="exportCurrentViewExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5 transition whitespace-nowrap" title="Export currently active filtered view to Excel">
+            <i class="fa-solid fa-file-arrow-down"></i> <span>Export Current View (.xlsx)</span>
+          </button>
+        </div>
+      </div>
 
-            <button onclick="switchTab('sales')" id="tabBtn-sales" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-purple-100 hover:text-purple-900 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-chart-line text-purple-600"></i> 📈 Sales & Pipeline Stock
-            </button>
+      <!-- VIEW: PORTAL HUB / APP LAUNCHER (DEFAULT LANDING VIEW) -->
+      <div id="view-hub" class="tab-view flex-1 flex flex-col p-5 sm:p-6 overflow-y-auto">
+        <div class="flex items-center justify-between flex-wrap gap-3 pb-4 mb-5 border-b border-slate-100">
+          <div>
+            <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-cubes-stacked text-indigo-600"></i> Operational Portal Modules
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">
+              Click any module title below to view live data tables, log dispatches, track warehouse batches, or audit costs.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-indigo-50 text-indigo-700 font-semibold px-3 py-1 rounded-full border border-indigo-100 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> System Live & Connected
+            </span>
+          </div>
+        </div>
 
-            <button onclick="switchTab('adjustments')" id="tabBtn-adjustments" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-sliders text-slate-500"></i> 📉 Non-Dispatch Adjustments
-            </button>
+        <!-- MODULE TILES GRID (10 CARDS) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 
-            <button onclick="switchTab('audit')" id="tabBtn-audit" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-200/70 flex items-center gap-1.5 transition whitespace-nowrap">
-              <i class="fa-solid fa-clock-rotate-left text-slate-500"></i> 🕒 Audit Trail
-            </button>
-          </nav>
-
-          <!-- GLOBAL SEARCH & DISPATCH PLATFORM FILTER -->
-          <div class="flex items-center space-x-2">
-            <div id="platformFilterWrapper" class="hidden">
-              <select id="platformFilter" onchange="onPlatformFilterChange()" class="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500">
-                <option value="All">All Platforms</option>
-                {% for p in platforms %}
-                <option value="{{ p }}">{{ p }}</option>
-                {% endfor %}
-              </select>
+          <!-- 1. MASTER SUMMARY -->
+          <div onclick="switchTab('master')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-indigo-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-table"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">100% Live Matrix</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-indigo-600 transition mb-1">🌿 Master Summary</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Unified cross-channel view with real-time stock baselines, remaining units, and low-stock alerts across all platforms.
+              </p>
             </div>
-            <div class="relative">
-              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2 text-slate-400 text-xs"></i>
-              <input type="text" id="searchInput" oninput="onSearchChange()" placeholder="Search SKU, PO, Courier, LR..." class="text-xs pl-7 pr-3 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 shadow-sm">
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600 group-hover:translate-x-0.5 transition">
+              <span>Open Master Matrix</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
             </div>
           </div>
+
+          <!-- 2. ONLINE PLATFORMS -->
+          <div onclick="switchTab('online-platforms')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-emerald-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-bolt"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">10 Channels</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-emerald-600 transition mb-1">⚡ Online Platforms</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Dedicated deep dives for Blinkit, Zepto, Instamart, Amazon, Flipkart, BigBasket, JioMart, and quick-commerce depots.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-emerald-600 group-hover:translate-x-0.5 transition">
+              <span>View Online Channels</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 3. GENERAL TRADE (GT) -->
+          <div onclick="switchTab('gt')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-amber-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-shop"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">Traditional B2B</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-amber-600 transition mb-1">🏪 General Trade (GT)</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Wholesale distributor orders, regional dealer fulfillments, delivery challans, and offline trade dispatches.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-amber-600 group-hover:translate-x-0.5 transition">
+              <span>View GT Dispatches</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 4. MODERN TRADE (MT) -->
+          <div onclick="switchTab('mt')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-blue-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-blue-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-building"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">Retail Chains</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-blue-600 transition mb-1">🏢 Modern Trade (MT)</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Supermarket chains, hypermarkets, institutional buyer dispatches, centralized delivery appointments, and buyer POs.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-blue-600 group-hover:translate-x-0.5 transition">
+              <span>View MT Dispatches</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 5. DISPATCH OPERATIONS -->
+          <div onclick="switchTab('dispatch')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-indigo-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-truck-fast"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">Operations</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-indigo-600 transition mb-1">🚚 Dispatch Operations</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Consolidated dispatch center across Online, GT, and MT. Log shipments, upload PO/invoice docs, and track LR/AWB numbers.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600 group-hover:translate-x-0.5 transition">
+              <span>Log & Track Shipments</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 6. COURIER COSTING -->
+          <div onclick="switchTab('courier-costing')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-teal-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-teal-50 border border-teal-100 text-teal-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-teal-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-calculator"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-100">Weight & Freight</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-teal-600 transition mb-1">💰 Courier Costing</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Track freight expense against PO value (freight %), reconcile actual physical weight vs billable charged weight, and spot disputes.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-teal-600 group-hover:translate-x-0.5 transition">
+              <span>Audit Courier Billing</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 7. INVENTORY STOCK & BATCH LOG -->
+          <div onclick="switchTab('stock')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-blue-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-blue-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">Batches & Alerts</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-blue-600 transition mb-1">📦 Inventory Stock & Batches</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Inward factory batches date-wise and lot-wise, configure SKU baseline quantities, set reorder threshold alerts, and register brands.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-blue-600 group-hover:translate-x-0.5 transition">
+              <span>Manage Stock & Batches</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 8. SALES & PIPELINE STOCK -->
+          <div onclick="switchTab('sales')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-purple-50 border border-purple-100 text-purple-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-purple-600 group-hover:text-white transition">
+                  <i class="fa-solid fa-chart-line"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-100">Consumer Offtake</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-purple-600 transition mb-1">📈 Sales & Pipeline Stock</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Upload platform sales CSVs, track consumer offtake, compute sell-through velocity, and monitor estimated pipeline dark store stock.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-purple-600 group-hover:translate-x-0.5 transition">
+              <span>Analyze Consumer Sales</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 9. NON-DISPATCH ADJUSTMENTS -->
+          <div onclick="switchTab('adjustments')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-slate-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-slate-700 group-hover:text-white transition">
+                  <i class="fa-solid fa-sliders"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">Reconciliations</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-slate-700 transition mb-1">📉 Non-Dispatch Adjustments</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Log warehouse damage write-offs, marketing/promotional samples, expiry scrap, QC rejects, and inventory cycle-count adjustments.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-slate-600 group-hover:translate-x-0.5 transition">
+              <span>View Adjustments</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
+          <!-- 10. AUDIT TRAIL -->
+          <div onclick="switchTab('audit')" class="group bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-slate-400 transition cursor-pointer flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center text-lg shadow-2xs group-hover:bg-slate-700 group-hover:text-white transition">
+                  <i class="fa-solid fa-clock-rotate-left"></i>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">Governance</span>
+              </div>
+              <h3 class="font-bold text-sm text-slate-800 group-hover:text-slate-700 transition mb-1">🕒 Audit Trail & Governance</h3>
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Immutable security log recording who added products, registered brands, inwarded batches, edited baselines, or dispatched goods.
+              </p>
+            </div>
+            <div class="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-slate-600 group-hover:translate-x-0.5 transition">
+              <span>View Audit Trail</span>
+              <i class="fa-solid fa-arrow-right text-[11px]"></i>
+            </div>
+          </div>
+
         </div>
       </div>
 
       <!-- TAB 1: MASTER SUMMARY VIEW -->
-      <div id="view-master" class="tab-view flex-1 flex flex-col p-4 overflow-hidden">
+      <div id="view-master" class="tab-view hidden flex-1 flex flex-col p-4 overflow-hidden">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
             <span class="text-xs font-semibold text-slate-700">Live Inventory Master Summary</span>
@@ -1772,7 +1972,7 @@
       await loadBrands();
       await loadProducts();
       await loadStats();
-      await loadMaster();
+      switchTab('hub');
     }
 
     function getAuthHeaders() {
@@ -2072,22 +2272,48 @@
 
     let currentStockSubTab = 'ledger';
 
+    const MODULE_TITLES = {
+      'master': { title: '🌿 Master Summary', icon: 'fa-table', color: 'text-indigo-600' },
+      'online-platforms': { title: '⚡ Online Platforms (10 Channels)', icon: 'fa-bolt', color: 'text-emerald-600' },
+      'gt': { title: '🏪 General Trade (GT)', icon: 'fa-shop', color: 'text-amber-600' },
+      'mt': { title: '🏢 Modern Trade (MT)', icon: 'fa-building', color: 'text-blue-600' },
+      'dispatch': { title: '🚚 Dispatch Operations', icon: 'fa-truck-fast', color: 'text-indigo-600' },
+      'courier-costing': { title: '💰 Courier Costing & Weight Audit', icon: 'fa-calculator', color: 'text-teal-600' },
+      'stock': { title: '📦 Inventory Stock & Batch Log', icon: 'fa-boxes-stacked', color: 'text-blue-600' },
+      'sales': { title: '📈 Sales & Pipeline Stock', icon: 'fa-chart-line', color: 'text-purple-600' },
+      'adjustments': { title: '📉 Non-Dispatch Adjustments', icon: 'fa-sliders', color: 'text-slate-600' },
+      'audit': { title: '🕒 Audit Trail & Governance', icon: 'fa-clock-rotate-left', color: 'text-slate-600' }
+    };
+
     function switchTab(tab) {
       currentTab = tab;
 
-      document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.remove('bg-indigo-600', 'text-white', 'shadow-sm', 'font-semibold');
-        b.classList.add('text-slate-600', 'font-medium');
-      });
+      // Hide all tab views
       document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
 
-      const activeBtn = document.getElementById(`tabBtn-${tab}`);
-      if (activeBtn) {
-        activeBtn.classList.add('bg-indigo-600', 'text-white', 'shadow-sm', 'font-semibold');
-        activeBtn.classList.remove('text-slate-600', 'font-medium');
+      const workspaceHeader = document.getElementById('workspaceHeader');
+      const breadcrumb = document.getElementById('workspaceBreadcrumb');
+      const moduleSelect = document.getElementById('workspaceModuleSelect');
+      const platWrapper = document.getElementById('platformFilterWrapper');
+
+      if (tab === 'hub') {
+        if (workspaceHeader) workspaceHeader.classList.add('hidden');
+        const viewHub = document.getElementById('view-hub');
+        if (viewHub) viewHub.classList.remove('hidden');
+        if (platWrapper) platWrapper.classList.add('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
       }
 
-      const platWrapper = document.getElementById('platformFilterWrapper');
+      // Inside a module
+      if (workspaceHeader) workspaceHeader.classList.remove('hidden');
+      if (moduleSelect) moduleSelect.value = tab;
+
+      const meta = MODULE_TITLES[tab] || { title: tab, icon: 'fa-folder', color: 'text-indigo-600' };
+      if (breadcrumb) {
+        breadcrumb.innerHTML = `<span class="${meta.color} font-bold text-xs flex items-center gap-1.5"><i class="fa-solid ${meta.icon}"></i> ${meta.title}</span>`;
+      }
+
       if (platWrapper) {
         if ((tab === 'dispatch' && currentDispatchSubTab === 'online') || tab === 'online-platforms') {
           platWrapper.classList.remove('hidden');
@@ -4044,8 +4270,9 @@
         if (stockProductEl && stockProductEl.value !== 'All') sku = stockProductEl.value;
       }
 
+      const effectiveView = (view === 'hub') ? 'master' : view;
       const params = new URLSearchParams({
-        view: view.replace('-', '_'),
+        view: effectiveView.replace('-', '_'),
         brand: brand,
         sku: sku,
         search: search,
