@@ -3,14 +3,24 @@ import sqlite3
 import datetime
 import csv
 import random
+import re
 from io import BytesIO, TextIOWrapper
-from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import math
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'inventory-portal-secure-key-prod-2024')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
+if os.environ.get('SECURE_COOKIE', '').lower() in ('true', '1') or os.environ.get('FLASK_ENV') == 'production':
+    app.config['SESSION_COOKIE_SECURE'] = True
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inventory.db')
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'dispatch_docs')
@@ -227,26 +237,341 @@ def init_schema():
             INSERT INTO stock_inward_batches (inward_date, batch_no, sku, product_name, brand, quantity_added, mfg_date, expiry_date, supplier_po_ref, notes, added_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', sample_batches)
+    
+    # 7. Secure User Authentication Table
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cur.execute("SELECT COUNT(*) FROM users")
+    if cur.fetchone()[0] == 0:
+        default_pwd_hash = generate_password_hash('Admin@123')
+        for u_email, u_name in DEFAULT_NAMES.items():
+            cur.execute('''
+            INSERT OR IGNORE INTO users (email, password_hash, full_name, is_active)
+            VALUES (?, ?, ?, 1)
+            ''', (u_email, default_pwd_hash, u_name))
+
+    # 8. Purchase Orders (Multi-Product Header Table)
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        po_number TEXT UNIQUE NOT NULL,
+        po_date TEXT NOT NULL,
+        platform_or_channel TEXT NOT NULL,
+        channel_type TEXT NOT NULL,
+        location TEXT DEFAULT '',
+        distributor_name TEXT DEFAULT '',
+        appointment_date TEXT DEFAULT '',
+        total_items INTEGER DEFAULT 0,
+        total_quantity INTEGER DEFAULT 0,
+        total_po_value REAL DEFAULT 0.0,
+        status TEXT DEFAULT 'Pending Fulfillment',
+        po_doc_url TEXT DEFAULT '',
+        po_doc_name TEXT DEFAULT '',
+        notes TEXT DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    # Migration for GRN tracking fields on purchase_orders
+    cur.execute("PRAGMA table_info(purchase_orders)")
+    po_cols = [col[1] for col in cur.fetchall()]
+    if 'grn_number' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN grn_number TEXT DEFAULT ''")
+    if 'grn_date' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN grn_date TEXT DEFAULT ''")
+    if 'grn_notes' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN grn_notes TEXT DEFAULT ''")
+    if 'grn_done_by' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN grn_done_by TEXT DEFAULT ''")
+    if 'grn_done_at' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN grn_done_at TEXT DEFAULT ''")
+    if 'is_packed' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN is_packed INTEGER DEFAULT 0")
+    if 'is_pickup_ready' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN is_pickup_ready INTEGER DEFAULT 0")
+    if 'is_dispatched' not in po_cols:
+        cur.execute("ALTER TABLE purchase_orders ADD COLUMN is_dispatched INTEGER DEFAULT 0")
+
+    cur.execute("UPDATE purchase_orders SET is_packed = 1, is_pickup_ready = 1, is_dispatched = 1 WHERE status IN ('Partially Dispatched', 'Fully Dispatched', 'GRN Done') AND (is_packed = 0 OR is_packed IS NULL)")
+
+    # 9. Purchase Order Line Items (Multi-Products across any Brand)
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS po_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        po_id INTEGER NOT NULL,
+        po_number TEXT NOT NULL,
+        sku TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        brand TEXT NOT NULL,
+        category TEXT DEFAULT '',
+        ordered_quantity INTEGER NOT NULL DEFAULT 1,
+        unit_price REAL DEFAULT 0.0,
+        total_value REAL DEFAULT 0.0,
+        dispatched_quantity INTEGER DEFAULT 0,
+        notes TEXT DEFAULT '',
+        FOREIGN KEY (po_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+    )
+    ''')
+
+    # Seed sample multi-product POs if empty
+    cur.execute("SELECT COUNT(*) FROM purchase_orders")
+    if cur.fetchone()[0] == 0:
+        sample_pos = [
+            ('PO-BLK-2024-8841', '2024-05-18', 'Blinkit', 'online', 'Blinkit Gurugram FC-3', '', '2024-05-21', 3, 430, 71500.0, 'Pending Fulfillment', '', '', 'Priority restock order across brands', 'admin@company.com'),
+            ('PO-ZEP-2024-1092', '2024-05-19', 'Zepto', 'online', 'Zepto Whitefield DC-2, Bengaluru', '', '2024-05-22', 2, 280, 48200.0, 'Pending Fulfillment', '', '', 'Quick Commerce replenishment batch', 'person1@company.com'),
+            ('PO-GT-MUM-4401', '2024-05-16', 'GT', 'gtmt', 'Western Distributors, Mumbai', 'Western Distributors', '2024-05-20', 3, 350, 68000.0, 'Partially Dispatched', '', '', 'B2B distributor monthly consignment', 'joint_gt@company.com')
+        ]
+        for spo in sample_pos:
+            cur.execute('''
+            INSERT INTO purchase_orders (po_number, po_date, platform_or_channel, channel_type, location, distributor_name, appointment_date, total_items, total_quantity, total_po_value, status, po_doc_url, po_doc_name, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', spo)
+            po_id = cur.lastrowid
+            
+            if spo[0] == 'PO-BLK-2024-8841':
+                items = [
+                    (po_id, spo[0], 'CS0001', 'Cleanser', 'California Skin+', 'Skincare', 150, 220.0, 33000.0, 0, ''),
+                    (po_id, spo[0], 'NL001', 'NutraChips Rock Salt Banana Chips', 'NutraChips', 'Chips', 200, 65.0, 13000.0, 0, ''),
+                    (po_id, spo[0], 'B1-001', 'Body Wash 250ml', 'Brand A', 'General', 80, 318.75, 25500.0, 0, '')
+                ]
+            elif spo[0] == 'PO-ZEP-2024-1092':
+                items = [
+                    (po_id, spo[0], 'CS0002', 'Serum', 'California Skin+', 'Skincare', 100, 350.0, 35000.0, 0, ''),
+                    (po_id, spo[0], 'NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies', 'Cookies', 180, 73.33, 13200.0, 0, '')
+                ]
+            else:
+                items = [
+                    (po_id, spo[0], 'CS0004', 'Moisturizer', 'California Skin+', 'Skincare', 100, 280.0, 28000.0, 50, ''),
+                    (po_id, spo[0], 'NL003', 'NutraBites Baked Bhujia', 'NutraBites', 'Snacks', 150, 80.0, 12000.0, 150, ''),
+                    (po_id, spo[0], 'B1-001', 'Body Wash 250ml', 'Brand A', 'General', 100, 280.0, 28000.0, 0, '')
+                ]
+            cur.executemany('''
+            INSERT INTO po_items (po_id, po_number, sku, product_name, brand, category, ordered_quantity, unit_price, total_value, dispatched_quantity, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', items)
+
+    # 10. Automatically sync all PO line items to relevant dispatch tables
+    sync_all_pos_to_dispatches(cur)
+
+    # 11. Blinkit Dedicated AI Replenishment & Storage Cost Optimization Tables
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS blinkit_inventory_current (
+        item_id INTEGER,
+        facility_id INTEGER,
+        item_name TEXT,
+        brand_name TEXT,
+        upc TEXT,
+        uom TEXT,
+        facility_name TEXT,
+        net_scheduled INTEGER DEFAULT 0,
+        incoming_scheduled INTEGER DEFAULT 0,
+        recalled_inventory INTEGER DEFAULT 0,
+        total_sellable INTEGER DEFAULT 0,
+        warehouse_stock INTEGER DEFAULT 0,
+        in_between_stock INTEGER DEFAULT 0,
+        darkstore_stock INTEGER DEFAULT 0,
+        total_unsellable INTEGER DEFAULT 0,
+        damaged INTEGER DEFAULT 0,
+        lost INTEGER DEFAULT 0,
+        expired INTEGER DEFAULT 0,
+        near_expiry INTEGER DEFAULT 0,
+        sales_7d INTEGER DEFAULT 0,
+        sales_15d INTEGER DEFAULT 0,
+        sales_30d INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (item_id, facility_id)
+    )
+    ''')
+
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS blinkit_sales_orders (
+        order_id TEXT PRIMARY KEY,
+        order_date TEXT,
+        item_id INTEGER,
+        product_name TEXT,
+        brand_name TEXT,
+        upc TEXT,
+        supply_city TEXT,
+        supply_state TEXT,
+        customer_city TEXT,
+        customer_state TEXT,
+        order_status TEXT,
+        quantity INTEGER DEFAULT 1,
+        mrp REAL DEFAULT 0.0,
+        selling_price REAL DEFAULT 0.0,
+        total_gross_amount REAL DEFAULT 0.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS blinkit_facility_settings (
+        facility_name TEXT PRIMARY KEY,
+        facility_id INTEGER DEFAULT 0,
+        lead_time_days INTEGER DEFAULT 8,
+        safety_stock_days INTEGER DEFAULT 3,
+        target_max_days INTEGER DEFAULT 21,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    default_blinkit_facilities = [
+        ('Mumbai M12 - Feeder Warehouse', 5406, 8, 3, 21),
+        ('Mumbai M10 - Feeder', 2123, 8, 3, 21),
+        ('Bengaluru B5 - Feeder', 5397, 8, 3, 21),
+        ('Bengaluru B3', 1873, 8, 3, 21),
+        ('Pune P3 - Feeder Warehouse', 4572, 8, 3, 21),
+        ('Kundli Feeder', 2010, 8, 3, 21),
+        ('Faridabad - Feeder', 5096, 8, 3, 21),
+        ('Ahmedabad A2 - Feeder', 2470, 8, 3, 21),
+        ('Hyderabad H3 - Feeder', 3201, 8, 3, 21),
+        ('Chennai C5 - Feeder', 3262, 8, 3, 21),
+        ('Kolkata K6 - Feeder Warehouse', 4842, 9, 3, 21),
+        ('Nagpur N1 - Feeder', 2468, 8, 3, 21)
+    ]
+    for fac in default_blinkit_facilities:
+        cur.execute('''
+        INSERT OR IGNORE INTO blinkit_facility_settings (facility_name, facility_id, lead_time_days, safety_stock_days, target_max_days)
+        VALUES (?, ?, ?, ?, ?)
+        ''', fac)
+
+    # 12. Zepto Dedicated Sales Offtake Table (Anti-Overlap Idempotent Upsert)
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS zepto_sales_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_date TEXT NOT NULL,
+        sku_number TEXT NOT NULL,
+        sku_name TEXT NOT NULL,
+        ean TEXT,
+        sku_category TEXT,
+        sku_sub_category TEXT,
+        brand_name TEXT,
+        manufacturer_name TEXT,
+        manufacturer_id TEXT,
+        city TEXT NOT NULL,
+        units_sold INTEGER DEFAULT 0,
+        mrp REAL DEFAULT 0.0,
+        gmv REAL DEFAULT 0.0,
+        matched_sku TEXT,
+        matched_product_name TEXT,
+        source_file TEXT,
+        uploaded_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(sale_date, sku_number, city)
+    )
+    ''')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_zepto_date ON zepto_sales_orders(sale_date)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_zepto_city ON zepto_sales_orders(city)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_zepto_sku ON zepto_sales_orders(sku_number)')
+
+    # 13. Swiggy Instamart Dedicated Product Sales Offtake Table (Anti-Overlap Idempotent Upsert)
+    cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='instamart_sales_orders'")
+    tbl_row = cur.fetchone()
+    if tbl_row and 'campaign_id' in tbl_row[0]:
+        cur.execute("DROP TABLE instamart_sales_orders")
+
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS instamart_sales_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_date TEXT NOT NULL,
+        item_code TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        variant TEXT DEFAULT '',
+        brand_name TEXT DEFAULT '',
+        city TEXT NOT NULL,
+        area_name TEXT DEFAULT '',
+        store_id TEXT DEFAULT '',
+        units_sold INTEGER DEFAULT 0,
+        mrp REAL DEFAULT 0.0,
+        gmv REAL DEFAULT 0.0,
+        matched_sku TEXT,
+        matched_product_name TEXT,
+        source_file TEXT,
+        uploaded_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(sale_date, item_code, city, store_id)
+    )
+    ''')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_instamart_date ON instamart_sales_orders(sale_date)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_instamart_item ON instamart_sales_orders(item_code)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_instamart_city ON instamart_sales_orders(city)')
 
     conn.commit()
     conn.close()
 
+def sync_all_pos_to_dispatches(cur):
+    """Ensures every PO line item has a corresponding linked entry in dispatch_online or dispatch_gt_mt."""
+    cur.execute('SELECT * FROM purchase_orders')
+    pos = cur.fetchall()
+    for po in pos:
+        po_id = po['id']
+        cur.execute('SELECT * FROM po_items WHERE po_id = ?', (po_id,))
+        items = cur.fetchall()
+        for it in items:
+            sku = it['sku']
+            po_num = po['po_number']
+            is_gtmt = (po['platform_or_channel'] in ['GT', 'MT']) or (po['channel_type'] == 'gtmt')
+            if is_gtmt:
+                existing = cur.execute('SELECT id FROM dispatch_gt_mt WHERE po_number = ? AND sku = ?', (po_num, sku)).fetchone()
+                if not existing:
+                    channel = 'GT' if 'GT' in po['platform_or_channel'].upper() else 'MT'
+                    buyer = po['distributor_name'] or po['location'] or 'Distributor'
+                    disp_qty = it['dispatched_quantity'] or 0
+                    ord_qty = it['ordered_quantity'] or 0
+                    st = 'Dispatched' if (disp_qty >= ord_qty and ord_qty > 0) else ('Partially Dispatched' if disp_qty > 0 else 'Pending Booking')
+                    cur.execute('''
+                    INSERT INTO dispatch_gt_mt (
+                        dispatch_date, brand, product_name, sku, category, channel, buyer_distributor, location,
+                        po_number, invoice_no, po_quantity, actual_sent, appointment_date,
+                        courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes,
+                        po_doc_url, po_doc_name, invoice_doc_url, invoice_doc_name, po_date, po_value
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, '', '', 0.0, ?, '', '', ?, ?, '', '', ?, ?)
+                    ''', (
+                        po['po_date'] or datetime.date.today().strftime('%Y-%m-%d'),
+                        it['brand'], it['product_name'], sku, it['category'], channel, buyer, po['location'],
+                        po_num, ord_qty, disp_qty, po['appointment_date'],
+                        st, po['po_doc_url'], po['po_doc_name'], po['po_date'], it['total_value']
+                    ))
+            else:
+                existing = cur.execute('SELECT id FROM dispatch_online WHERE po_number = ? AND sku = ?', (po_num, sku)).fetchone()
+                if not existing:
+                    platform = po['platform_or_channel']
+                    disp_qty = it['dispatched_quantity'] or 0
+                    ord_qty = it['ordered_quantity'] or 0
+                    st = 'Dispatched' if (disp_qty >= ord_qty and ord_qty > 0) else ('Partially Dispatched' if disp_qty > 0 else 'Pending Booking')
+                    cur.execute('''
+                    INSERT INTO dispatch_online (
+                        dispatch_date, brand, product_name, sku, category, platform, location,
+                        po_number, po_quantity, actual_sent, appointment_date,
+                        courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes,
+                        po_doc_url, po_doc_name, invoice_doc_url, invoice_doc_name, po_date, po_value
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 0.0, ?, '', '', ?, ?, '', '', ?, ?)
+                    ''', (
+                        po['po_date'] or datetime.date.today().strftime('%Y-%m-%d'),
+                        it['brand'], it['product_name'], sku, it['category'], platform, po['location'],
+                        po_num, ord_qty, disp_qty, po['appointment_date'],
+                        st, po['po_doc_url'], po['po_doc_name'], po['po_date'], it['total_value']
+                    ))
+
 init_schema()
 
 def get_user_info():
-    email = request.headers.get('X-User-Email', '').strip().lower()
+    # Real session authentication: Read exclusively from encrypted server-side session cookie
+    email = session.get('user_email', '').strip().lower()
+    name = session.get('user_name', '').strip()
     if not email:
-        email = request.args.get('user_email', '').strip().lower()
-    if not email and request.form:
-        email = request.form.get('user_email', '').strip().lower()
-    # Defensive security: Unauthenticated or direct anonymous requests default to Guest Viewer (read-only)
-    email = email or 'viewer@company.com'
-    
-    name = request.headers.get('X-User-Name', '').strip()
-    if not name:
-        name = request.args.get('user_name', '').strip()
-    if not name and request.form:
-        name = request.form.get('user_name', '').strip()
+        email = 'viewer@company.com'
     if not name:
         name = DEFAULT_NAMES.get(email, email.split('@')[0].replace('.', ' ').title())
     return email, name
@@ -325,6 +650,9 @@ def get_user_profile(user_email=None):
     else:
         role_title = 'Guest Viewer (Read-Only)'
             
+    can_create_po = is_admin or bool(allowed_courier_platforms or allowed_courier_channels)
+    is_platform_manager = is_admin or bool(allowed_courier_platforms or allowed_courier_channels)
+    
     return {
         'user_email': user_email,
         'is_admin': is_admin,
@@ -333,11 +661,15 @@ def get_user_profile(user_email=None):
         'can_edit_dispatch_online': can_edit_dispatch_online,
         'can_edit_dispatch_gt': can_edit_dispatch_gt,
         'can_edit_dispatch_mt': can_edit_dispatch_mt,
+        'can_create_po': can_create_po,
+        'is_platform_manager': is_platform_manager,
         'online_dispatch_emails': list(online_dispatch_emails),
         'gt_dispatch_emails': list(gt_dispatch_emails),
         'mt_dispatch_emails': list(mt_dispatch_emails),
         'allowed_courier_platforms': allowed_courier_platforms,
         'allowed_courier_channels': allowed_courier_channels,
+        'allowed_platforms': allowed_courier_platforms,
+        'allowed_channels': allowed_courier_channels,
         'role_title': role_title,
         'roles': roles
     }
@@ -364,6 +696,116 @@ def add_security_headers(response):
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return jsonify({'error': 'File too large. Maximum allowed upload size is 16 MB.'}), 413
+
+PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'request_entity_too_large'}
+
+@app.before_request
+def require_login():
+    if request.endpoint in PUBLIC_ENDPOINTS or (request.endpoint and request.endpoint.startswith('static')):
+        return None
+    if 'user_email' not in session:
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required. Please log in.'}), 401
+        return redirect(url_for('login', next=request.path))
+    return None
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('user_email'):
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Authentication required. Please log in.'}), 401
+            return redirect(url_for('login', next=request.path))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'GET':
+        if session.get('user_email'):
+            return redirect(request.args.get('next') or url_for('index'))
+        return render_template('login.html', next_url=request.args.get('next', ''))
+
+    # POST
+    data = request.form if request.form else (request.get_json(silent=True) or {})
+    email = str(data.get('email', '')).strip().lower()
+    password = str(data.get('password', ''))
+    remember = bool(data.get('remember'))
+    next_url = data.get('next') or request.args.get('next') or url_for('index')
+
+    if not email or not password:
+        err_msg = 'Please enter both email and password.'
+        if request.is_json:
+            return jsonify({'error': err_msg}), 400
+        return render_template('login.html', error=err_msg, email=email, next_url=next_url), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    user = cur.execute("SELECT * FROM users WHERE email = ? AND is_active = 1", (email,)).fetchone()
+    
+    if not user or not check_password_hash(user['password_hash'], password):
+        conn.close()
+        err_msg = 'Invalid email or password. Please verify your credentials.'
+        if request.is_json:
+            return jsonify({'error': err_msg}), 401
+        return render_template('login.html', error=err_msg, email=email, next_url=next_url), 401
+
+    session.permanent = remember
+    session['user_email'] = user['email']
+    session['user_name'] = user['full_name']
+    
+    try:
+        record_audit(conn, 'LOGIN', 'Security & Access', user['email'], f"User {user['full_name']} logged in successfully")
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+    if request.is_json:
+        return jsonify({'status': 'success', 'redirect': next_url})
+    return redirect(next_url)
+
+@app.route('/logout')
+def logout():
+    user_email = session.get('user_email')
+    if user_email:
+        try:
+            conn = get_db()
+            record_audit(conn, 'LOGOUT', 'Security & Access', user_email, f"User {user_email} logged out")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/api/change-password', methods=['POST'])
+@login_required
+def change_password():
+    user_email = session.get('user_email')
+    data = request.json or request.form or {}
+    old_password = str(data.get('old_password', ''))
+    new_password = str(data.get('new_password', ''))
+
+    if not old_password or not new_password:
+        return jsonify({'error': 'Current password and new password are required.'}), 400
+    if len(new_password) < 6:
+        return jsonify({'error': 'New password must be at least 6 characters.'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    user = cur.execute("SELECT * FROM users WHERE email = ? AND is_active = 1", (user_email,)).fetchone()
+    if not user or not check_password_hash(user['password_hash'], old_password):
+        conn.close()
+        return jsonify({'error': 'Incorrect current password.'}), 400
+
+    new_hash = generate_password_hash(new_password)
+    cur.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, user_email))
+    record_audit(conn, 'CHANGE_PASSWORD', 'Security & Access', user_email, f"User {user_email} changed their password")
+    conn.commit()
+    conn.close()
+
+    return jsonify({'status': 'success', 'message': 'Password updated successfully.'})
 
 @app.route('/')
 def index():
@@ -420,6 +862,13 @@ def update_permissions():
             ON CONFLICT(role_key) DO UPDATE SET authorized_email = excluded.authorized_email
             ''', (r_key, val, f'Authorized email(s) for {r_label}'))
             changes.append(f"{r_label} -> {val}")
+            if val:
+                default_pwd_hash = generate_password_hash('Admin@123')
+                for single_email in [e.strip().lower() for e in val.split(',') if e.strip()]:
+                    cur.execute('''
+                    INSERT OR IGNORE INTO users (email, password_hash, full_name, is_active)
+                    VALUES (?, ?, ?, 1)
+                    ''', (single_email, default_pwd_hash, single_email.split('@')[0].title()))
         
     if 'assignments' in data and isinstance(data['assignments'], dict):
         for plat, info in data['assignments'].items():
@@ -436,6 +885,11 @@ def update_permissions():
                 WHERE platform_key = ?
                 ''', (p_email, p_name or plat, plat))
                 changes.append(f"{plat} -> {p_email}")
+                default_pwd_hash = generate_password_hash('Admin@123')
+                cur.execute('''
+                INSERT OR IGNORE INTO users (email, password_hash, full_name, is_active)
+                VALUES (?, ?, ?, 1)
+                ''', (p_email, default_pwd_hash, p_name or p_email.split('@')[0].title()))
                 
     summary = ", ".join(changes) if changes else "No changes"
     record_audit(conn, 'UPDATE_PERMISSIONS', 'Security & Access', 'Assignments', f'Updated access settings: {summary}')
@@ -1025,9 +1479,14 @@ def update_dispatch_online_courier(item_id):
     dispatch_status = data.get('dispatch_status', 'Dispatched').strip()
     eway_bill_no = data.get('eway_bill_no', '').strip()
     shipping_notes = data.get('shipping_notes', '').strip()
+    try:
+        actual_sent = int(data.get('actual_sent', row['actual_sent']))
+    except:
+        actual_sent = row['actual_sent']
     
     cur.execute('''
     UPDATE dispatch_online SET
+        actual_sent = ?,
         courier_name = ?,
         tracking_id = ?,
         courier_charges = ?,
@@ -1035,13 +1494,30 @@ def update_dispatch_online_courier(item_id):
         eway_bill_no = ?,
         shipping_notes = ?
     WHERE id = ?
-    ''', (courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes, item_id))
+    ''', (actual_sent, courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes, item_id))
     
-    edit_sum = f"Courier: '{courier_name}', AWB: '{tracking_id}', Charges: ₹{courier_charges:,.2f}, Status: '{dispatch_status}' (Dispatch #{item_id}, {platform})"
+    # Sync dispatched quantity back to PO
+    po_num = row['po_number']
+    sku = row['sku']
+    if po_num and sku:
+        cur.execute('UPDATE po_items SET dispatched_quantity = ? WHERE po_number = ? AND sku = ?', (actual_sent, po_num, sku))
+        po_row = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_num,)).fetchone()
+        if po_row:
+            po_id = po_row['id']
+            stats = cur.execute('''
+                SELECT SUM(ordered_quantity) as total_ordered, SUM(dispatched_quantity) as total_dispatched
+                FROM po_items WHERE po_id = ?
+            ''', (po_id,)).fetchone()
+            tot_ord = stats['total_ordered'] or 0
+            tot_disp = stats['total_dispatched'] or 0
+            new_st = 'Fully Dispatched' if (tot_disp >= tot_ord and tot_ord > 0) else ('Partially Dispatched' if tot_disp > 0 else 'Pending Fulfillment')
+            cur.execute('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_st, po_id))
+
+    edit_sum = f"Fulfilled/Updated: {actual_sent} units sent via '{courier_name}', AWB: '{tracking_id}', Charges: ₹{courier_charges:,.2f}, Status: '{dispatch_status}' (Dispatch #{item_id}, {platform})"
     record_audit(conn, 'UPDATE_COURIER_ONLINE', 'Dispatch Online', f'Dispatch #{item_id} | {platform}', edit_sum)
     conn.commit()
     conn.close()
-    return jsonify({'status': 'success', 'message': 'Courier details updated successfully'})
+    return jsonify({'status': 'success', 'message': 'Courier & dispatch details updated successfully'})
 
 @app.route('/api/dispatch-online/<int:item_id>', methods=['DELETE'])
 def delete_dispatch_online(item_id):
@@ -1061,6 +1537,24 @@ def delete_dispatch_online(item_id):
     edit_sum = f"Deleted dispatch #{item_id}: {row['actual_sent']} units of {row['product_name']} to {row['platform']} (PO: {row['po_number']})"
     record_audit(conn, 'DELETE_ONLINE_DISPATCH', 'Dispatch Online', f'Dispatch #{item_id} | PO #{row["po_number"]}', edit_sum)
     cur.execute('DELETE FROM dispatch_online WHERE id = ?', (item_id,))
+
+    # Reset PO item dispatched quantity if applicable
+    po_num = row['po_number']
+    sku = row['sku']
+    if po_num and sku:
+        cur.execute('UPDATE po_items SET dispatched_quantity = 0 WHERE po_number = ? AND sku = ?', (po_num, sku))
+        po_row = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_num,)).fetchone()
+        if po_row:
+            po_id = po_row['id']
+            stats = cur.execute('''
+                SELECT SUM(ordered_quantity) as total_ordered, SUM(dispatched_quantity) as total_dispatched
+                FROM po_items WHERE po_id = ?
+            ''', (po_id,)).fetchone()
+            tot_ord = stats['total_ordered'] or 0
+            tot_disp = stats['total_dispatched'] or 0
+            new_st = 'Fully Dispatched' if (tot_disp >= tot_ord and tot_ord > 0) else ('Partially Dispatched' if tot_disp > 0 else 'Pending Fulfillment')
+            cur.execute('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_st, po_id))
+
     conn.commit()
     conn.close()
     return jsonify({'status': 'success'})
@@ -1220,9 +1714,14 @@ def update_dispatch_gtmt_courier(item_id):
     dispatch_status = data.get('dispatch_status', 'Dispatched').strip()
     eway_bill_no = data.get('eway_bill_no', '').strip()
     shipping_notes = data.get('shipping_notes', '').strip()
+    try:
+        actual_sent = int(data.get('actual_sent', row['actual_sent']))
+    except:
+        actual_sent = row['actual_sent']
     
     cur.execute('''
     UPDATE dispatch_gt_mt SET
+        actual_sent = ?,
         courier_name = ?,
         tracking_id = ?,
         courier_charges = ?,
@@ -1230,13 +1729,30 @@ def update_dispatch_gtmt_courier(item_id):
         eway_bill_no = ?,
         shipping_notes = ?
     WHERE id = ?
-    ''', (courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes, item_id))
+    ''', (actual_sent, courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes, item_id))
     
-    edit_sum = f"Transporter: '{courier_name}', LR/AWB: '{tracking_id}', Charges: ₹{courier_charges:,.2f}, Status: '{dispatch_status}' (GT/MT #{item_id}, {row['channel']} - {row['buyer_distributor']})"
+    # Sync dispatched quantity back to PO
+    po_num = row['po_number']
+    sku = row['sku']
+    if po_num and sku:
+        cur.execute('UPDATE po_items SET dispatched_quantity = ? WHERE po_number = ? AND sku = ?', (actual_sent, po_num, sku))
+        po_row = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_num,)).fetchone()
+        if po_row:
+            po_id = po_row['id']
+            stats = cur.execute('''
+                SELECT SUM(ordered_quantity) as total_ordered, SUM(dispatched_quantity) as total_dispatched
+                FROM po_items WHERE po_id = ?
+            ''', (po_id,)).fetchone()
+            tot_ord = stats['total_ordered'] or 0
+            tot_disp = stats['total_dispatched'] or 0
+            new_st = 'Fully Dispatched' if (tot_disp >= tot_ord and tot_ord > 0) else ('Partially Dispatched' if tot_disp > 0 else 'Pending Fulfillment')
+            cur.execute('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_st, po_id))
+
+    edit_sum = f"Fulfilled/Updated: {actual_sent} units sent via Transporter: '{courier_name}', LR/AWB: '{tracking_id}', Charges: ₹{courier_charges:,.2f}, Status: '{dispatch_status}' (GT/MT #{item_id}, {row['channel']} - {row['buyer_distributor']})"
     record_audit(conn, 'UPDATE_COURIER_GTMT', 'Dispatch GT MT', f'Dispatch #{item_id} | {row["channel"]}', edit_sum)
     conn.commit()
     conn.close()
-    return jsonify({'status': 'success', 'message': 'Transporter details updated successfully'})
+    return jsonify({'status': 'success', 'message': 'Transporter & dispatch details updated successfully'})
 
 @app.route('/api/dispatch-gt-mt/<int:item_id>', methods=['DELETE'])
 def delete_dispatch_gt_mt(item_id):
@@ -1261,11 +1777,29 @@ def delete_dispatch_gt_mt(item_id):
     edit_sum = f"Deleted GT/MT dispatch #{item_id}: {row['actual_sent']} units of {row['product_name']} via {row['channel']} to {row['buyer_distributor']}"
     record_audit(conn, 'DELETE_GTMT_DISPATCH', 'Dispatch GT MT', f'Dispatch #{item_id} | {row["channel"]}', edit_sum)
     cur.execute('DELETE FROM dispatch_gt_mt WHERE id = ?', (item_id,))
+
+    # Reset PO item dispatched quantity if applicable
+    po_num = row['po_number']
+    sku = row['sku']
+    if po_num and sku:
+        cur.execute('UPDATE po_items SET dispatched_quantity = 0 WHERE po_number = ? AND sku = ?', (po_num, sku))
+        po_row = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_num,)).fetchone()
+        if po_row:
+            po_id = po_row['id']
+            stats = cur.execute('''
+                SELECT SUM(ordered_quantity) as total_ordered, SUM(dispatched_quantity) as total_dispatched
+                FROM po_items WHERE po_id = ?
+            ''', (po_id,)).fetchone()
+            tot_ord = stats['total_ordered'] or 0
+            tot_disp = stats['total_dispatched'] or 0
+            new_st = 'Fully Dispatched' if (tot_disp >= tot_ord and tot_ord > 0) else ('Partially Dispatched' if tot_disp > 0 else 'Pending Fulfillment')
+            cur.execute('UPDATE purchase_orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_st, po_id))
+
     conn.commit()
     conn.close()
     return jsonify({'status': 'success'})
 
-# --- DISPATCH DOCUMENT UPLOADS (PO & INVOICE COPIES) ---
+# --- DISPATCH DOCUMENT UPLOADS (PO & INVOICE COPIES - AUTO-SYNCED ACROSS PO) ---
 @app.route('/api/dispatch/upload-docs', methods=['POST'])
 def upload_dispatch_docs():
     user_email, user_name = get_user_info()
@@ -1281,15 +1815,20 @@ def upload_dispatch_docs():
     dispatch_type = request.form.get('dispatch_type', 'online').strip().lower()
     doc_type = request.form.get('doc_type', 'po').strip().lower() # 'po' or 'invoice'
     item_id = request.form.get('dispatch_id', '').strip()
+    po_number = request.form.get('po_number', '').strip()
     
-    if not item_id:
-        return jsonify({'error': 'Dispatch ID is required'}), 400
+    if not item_id and not po_number:
+        return jsonify({'error': 'Dispatch ID or PO Number is required'}), 400
         
     conn = get_db()
     cur = conn.cursor()
     
     table_name = 'dispatch_online' if dispatch_type == 'online' else 'dispatch_gt_mt'
-    row = cur.execute(f"SELECT * FROM {table_name} WHERE id = ?", (item_id,)).fetchone()
+    if item_id:
+        row = cur.execute(f"SELECT * FROM {table_name} WHERE id = ?", (item_id,)).fetchone()
+    else:
+        row = cur.execute(f"SELECT * FROM {table_name} WHERE po_number = ? LIMIT 1", (po_number,)).fetchone()
+        
     if not row:
         conn.close()
         return jsonify({'error': 'Dispatch record not found'}), 404
@@ -1313,21 +1852,31 @@ def upload_dispatch_docs():
         
     clean_base = "".join(c for c in os.path.splitext(file.filename)[0] if c.isalnum() or c in ('-', '_')).strip() or 'doc'
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"{dispatch_type}_{item_id}_{doc_type}_{timestamp}_{clean_base}{ext}"
+    po_ref_clean = (row['po_number'] or str(row['id'])).replace('/', '_').replace('-', '_')
+    filename = f"{dispatch_type}_{po_ref_clean}_{doc_type}_{timestamp}_{clean_base}{ext}"
     dest_path = os.path.join(UPLOAD_FOLDER, filename)
     file.save(dest_path)
     
     doc_url = f"/uploads/dispatch_docs/{filename}"
     doc_name = file.filename
     
-    if doc_type == 'po':
-        cur.execute(f"UPDATE {table_name} SET po_doc_url = ?, po_doc_name = ? WHERE id = ?", (doc_url, doc_name, item_id))
+    po_num = row['po_number'] or po_number
+    if po_num:
+        # Grouped PO sync: One upload attaches document across ALL products under this PO!
+        if doc_type == 'po':
+            cur.execute(f"UPDATE {table_name} SET po_doc_url = ?, po_doc_name = ? WHERE po_number = ?", (doc_url, doc_name, po_num))
+            cur.execute("UPDATE purchase_orders SET po_doc_url = ?, po_doc_name = ? WHERE po_number = ?", (doc_url, doc_name, po_num))
+        else:
+            cur.execute(f"UPDATE {table_name} SET invoice_doc_url = ?, invoice_doc_name = ? WHERE po_number = ?", (doc_url, doc_name, po_num))
     else:
-        cur.execute(f"UPDATE {table_name} SET invoice_doc_url = ?, invoice_doc_name = ? WHERE id = ?", (doc_url, doc_name, item_id))
+        if doc_type == 'po':
+            cur.execute(f"UPDATE {table_name} SET po_doc_url = ?, po_doc_name = ? WHERE id = ?", (doc_url, doc_name, row['id']))
+        else:
+            cur.execute(f"UPDATE {table_name} SET invoice_doc_url = ?, invoice_doc_name = ? WHERE id = ?", (doc_url, doc_name, row['id']))
         
     audit_label = 'PO Copy' if doc_type == 'po' else 'Invoice Copy'
     channel_ref = row['platform'] if dispatch_type == 'online' else row['channel']
-    record_audit(conn, 'UPLOAD_DISPATCH_DOC', f"Dispatch {dispatch_type.upper()}", f"Dispatch #{item_id} | {channel_ref}", f"Attached {audit_label}: '{doc_name}'")
+    record_audit(conn, 'UPLOAD_DISPATCH_DOC', f"Dispatch {dispatch_type.upper()}", f"PO #{po_num} | {channel_ref}", f"Attached {audit_label}: '{doc_name}' for entire PO consignment")
     conn.commit()
     conn.close()
     
@@ -1336,12 +1885,641 @@ def upload_dispatch_docs():
         'doc_type': doc_type,
         'doc_url': doc_url,
         'doc_name': doc_name,
-        'message': f"{audit_label} attached successfully"
+        'po_number': po_num,
+        'message': f"{audit_label} attached to all products under PO '{po_num}'"
+    })
+
+# --- BATCH / PO CONSIGNMENT DISPATCH FULFILLMENT ---
+@app.route('/api/dispatch/fulfill-po', methods=['POST'])
+def fulfill_po_consignment():
+    """Fulfill or update logistics for an entire PO consignment at once (courier, tracking, charges, invoice, actual units)."""
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    
+    data = request.json or {}
+    dispatch_type = str(data.get('dispatch_type', 'online')).strip().lower() # 'online' or 'gtmt'
+    po_number = str(data.get('po_number', '')).strip()
+    
+    if not po_number:
+        return jsonify({'error': 'PO Number is required'}), 400
+        
+    table_name = 'dispatch_online' if dispatch_type == 'online' else 'dispatch_gt_mt'
+    conn = get_db()
+    cur = conn.cursor()
+    
+    rows = cur.execute(f"SELECT * FROM {table_name} WHERE po_number = ?", (po_number,)).fetchall()
+    if not rows:
+        conn.close()
+        return jsonify({'error': f"No dispatch records found for PO '{po_number}'"}), 404
+        
+    # Check permissions
+    first_row = rows[0]
+    if dispatch_type == 'online':
+        platform = first_row['platform']
+        can_edit = profile['is_admin'] or profile['can_edit_dispatch_online'] or (platform in profile['allowed_courier_platforms'])
+    else:
+        channel = first_row['channel']
+        can_edit = profile['is_admin'] or (channel == 'GT' and profile['can_edit_dispatch_gt']) or (channel == 'MT' and profile['can_edit_dispatch_mt']) or (channel in profile['allowed_courier_channels'])
+        
+    if not can_edit:
+        conn.close()
+        return jsonify({'error': 'Permission Denied: Unauthorized to update this consignment dispatch.'}), 403
+        
+    courier_name = str(data.get('courier_name', '')).strip()
+    tracking_id = str(data.get('tracking_id', '')).strip()
+    try:
+        courier_charges = float(data.get('courier_charges', 0.0))
+    except:
+        courier_charges = 0.0
+    dispatch_status = str(data.get('dispatch_status', 'Dispatched')).strip()
+    eway_bill_no = str(data.get('eway_bill_no', '')).strip()
+    shipping_notes = str(data.get('shipping_notes', '')).strip()
+    
+    # Items: array of {id, sku, actual_sent}
+    items_input = data.get('items', [])
+    items_by_id = {it.get('id'): it for it in items_input if it.get('id') is not None}
+    items_by_sku = {it.get('sku'): it for it in items_input if it.get('sku')}
+    
+    # Proportionate allocation of total courier charges across items
+    total_ord_qty = sum(r['po_quantity'] or 1 for r in rows) or 1
+    
+    for idx, r in enumerate(rows):
+        r_id = r['id']
+        r_sku = r['sku']
+        
+        # Determine actual_sent for this item
+        it_info = items_by_id.get(r_id) or items_by_sku.get(r_sku)
+        if it_info and 'actual_sent' in it_info:
+            try:
+                item_actual_sent = int(it_info['actual_sent'])
+            except:
+                item_actual_sent = r['actual_sent']
+        else:
+            item_actual_sent = r['actual_sent'] if r['actual_sent'] > 0 else (r['po_quantity'] or 0)
+            
+        if courier_charges > 0:
+            item_charge = round(courier_charges * ((r['po_quantity'] or 1) / total_ord_qty), 2)
+        else:
+            item_charge = 0.0
+            
+        cur.execute(f'''
+        UPDATE {table_name} SET
+            actual_sent = ?,
+            courier_name = ?,
+            tracking_id = ?,
+            courier_charges = ?,
+            dispatch_status = ?,
+            eway_bill_no = ?,
+            shipping_notes = ?
+        WHERE id = ?
+        ''', (item_actual_sent, courier_name, tracking_id, item_charge, dispatch_status, eway_bill_no, shipping_notes, r_id))
+        
+        # Update po_items
+        cur.execute('''
+        UPDATE po_items SET dispatched_quantity = ? WHERE po_number = ? AND sku = ?
+        ''', (item_actual_sent, po_number, r_sku))
+        
+    # Recalculate parent PO overall status
+    po_row = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_number,)).fetchone()
+    if po_row:
+        po_id = po_row['id']
+        stats = cur.execute('''
+            SELECT SUM(ordered_quantity) as total_ordered, SUM(dispatched_quantity) as total_dispatched
+            FROM po_items WHERE po_id = ?
+        ''', (po_id,)).fetchone()
+        tot_ord = stats['total_ordered'] or 0
+        tot_disp = stats['total_dispatched'] or 0
+        new_st = 'Fully Dispatched' if (tot_disp >= tot_ord and tot_ord > 0) else ('Partially Dispatched' if tot_disp > 0 else 'Pending Fulfillment')
+        cur.execute('UPDATE purchase_orders SET status = ?, is_packed = 1, is_pickup_ready = 1, is_dispatched = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_st, po_id))
+        
+    audit_target = first_row['platform'] if dispatch_type == 'online' else first_row['channel']
+    edit_sum = f"Consignment PO {po_number} fulfilled: Courier '{courier_name}', AWB '{tracking_id}', Total Charges ₹{courier_charges:,.2f}, Status '{dispatch_status}' across {len(rows)} products"
+    record_audit(conn, 'FULFILL_PO_CONSIGNMENT', f"Dispatch {dispatch_type.upper()}", f"PO #{po_number} | {audit_target}", edit_sum)
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'message': f"Consignment for PO '{po_number}' updated successfully across all {len(rows)} products.",
+        'po_number': po_number
     })
 
 @app.route('/uploads/dispatch_docs/<path:filename>')
 def serve_dispatch_doc(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+# --- PURCHASE ORDER CREATION & MANAGEMENT ---
+@app.route('/api/purchase-orders', methods=['GET'])
+def get_purchase_orders():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    platform = request.args.get('platform', 'All')
+    status = request.args.get('status', 'All')
+    search = request.args.get('search', '').strip().lower()
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    packed = request.args.get('packed', 'All')
+    dispatch_status = request.args.get('dispatch_status', 'All')
+    
+    query = 'SELECT * FROM purchase_orders WHERE 1=1'
+    params = []
+    
+    if platform and platform != 'All':
+        query += ' AND platform_or_channel = ?'
+        params.append(platform)
+    if status and status != 'All':
+        query += ' AND status = ?'
+        params.append(status)
+    if packed == 'Yes':
+        query += ' AND is_packed = 1'
+    elif packed == 'No':
+        query += ' AND (is_packed = 0 OR is_packed IS NULL)'
+    if dispatch_status == 'Yes':
+        query += " AND (is_dispatched = 1 OR status IN ('Partially Dispatched', 'Fully Dispatched', 'GRN Done'))"
+    elif dispatch_status == 'No':
+        query += " AND (is_dispatched = 0 OR is_dispatched IS NULL) AND (status NOT IN ('Partially Dispatched', 'Fully Dispatched', 'GRN Done'))"
+    if start_date:
+        query += ' AND po_date >= ?'
+        params.append(start_date)
+    if end_date:
+        query += ' AND po_date <= ?'
+        params.append(end_date)
+    if search:
+        query += ' AND (LOWER(po_number) LIKE ? OR LOWER(location) LIKE ? OR LOWER(distributor_name) LIKE ?)'
+        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+        
+    query += ' ORDER BY po_date DESC, id DESC'
+    pos = [dict(r) for r in cur.execute(query, params).fetchall()]
+    
+    # Fetch line items for each PO
+    for po in pos:
+        items = cur.execute('SELECT * FROM po_items WHERE po_id = ? ORDER BY brand, product_name', (po['id'],)).fetchall()
+        item_list = []
+        for it in items:
+            d = dict(it)
+            d['quantity'] = d['ordered_quantity']
+            d['line_total'] = d['total_value']
+            item_list.append(d)
+        po['items'] = item_list
+        po['total_units'] = po.get('total_quantity', 0)
+        po['total_value'] = po.get('total_po_value', 0.0)
+        po['item_count'] = po.get('total_items', len(item_list))
+        
+        # Computed status fields for Yes/No columns
+        is_disp = bool(po.get('is_dispatched')) or (po.get('status') in ['Partially Dispatched', 'Fully Dispatched', 'GRN Done'])
+        po['is_dispatched'] = 1 if is_disp else 0
+        po['is_packed'] = 1 if po.get('is_packed') else 0
+        po['is_pickup_ready'] = 1 if po.get('is_pickup_ready') else 0
+        po['packed_yes_no'] = 'Yes' if po['is_packed'] else 'No'
+        po['pickup_ready_yes_no'] = 'Yes' if po['is_pickup_ready'] else 'No'
+        po['dispatch_status_yes_no'] = 'Yes' if is_disp else 'No'
+        
+    all_pos = cur.execute('SELECT COUNT(*), SUM(total_quantity), SUM(total_po_value) FROM purchase_orders').fetchone()
+    pending_cnt = cur.execute("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Pending Fulfillment'").fetchone()[0]
+    
+    stats = {
+        'total_pos': all_pos[0] or 0,
+        'pending_pos': pending_cnt or 0,
+        'total_units': all_pos[1] or 0,
+        'total_value': round(all_pos[2] or 0.0, 2)
+    }
+    
+    conn.close()
+    return jsonify({
+        'purchase_orders': pos,
+        'stats': stats
+    })
+
+@app.route('/api/purchase-orders/<int:po_id>', methods=['GET'])
+def get_purchase_order_detail(po_id):
+    conn = get_db()
+    cur = conn.cursor()
+    po = cur.execute('SELECT * FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    if not po:
+        conn.close()
+        return jsonify({'error': 'Purchase order not found'}), 404
+        
+    po_data = dict(po)
+    items = cur.execute('SELECT * FROM po_items WHERE po_id = ? ORDER BY brand, product_name', (po_id,)).fetchall()
+    item_list = []
+    for it in items:
+        d = dict(it)
+        d['quantity'] = d['ordered_quantity']
+        d['line_total'] = d['total_value']
+        item_list.append(d)
+    po_data['items'] = item_list
+    po_data['total_units'] = po_data.get('total_quantity', 0)
+    po_data['total_value'] = po_data.get('total_po_value', 0.0)
+    po_data['item_count'] = po_data.get('total_items', len(item_list))
+    
+    is_disp = bool(po_data.get('is_dispatched')) or (po_data.get('status') in ['Partially Dispatched', 'Fully Dispatched', 'GRN Done'])
+    po_data['is_dispatched'] = 1 if is_disp else 0
+    po_data['is_packed'] = 1 if po_data.get('is_packed') else 0
+    po_data['is_pickup_ready'] = 1 if po_data.get('is_pickup_ready') else 0
+    po_data['packed_yes_no'] = 'Yes' if po_data['is_packed'] else 'No'
+    po_data['pickup_ready_yes_no'] = 'Yes' if po_data['is_pickup_ready'] else 'No'
+    po_data['dispatch_status_yes_no'] = 'Yes' if is_disp else 'No'
+    
+    conn.close()
+    return jsonify({
+        'status': 'success',
+        'purchase_order': po_data,
+        **po_data
+    })
+
+@app.route('/api/purchase-orders/<int:po_id>/toggle', methods=['POST'])
+def toggle_po_status(po_id):
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    
+    conn = get_db()
+    cur = conn.cursor()
+    po = cur.execute('SELECT * FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    if not po:
+        conn.close()
+        return jsonify({'error': 'Purchase order not found'}), 404
+        
+    plat = po['platform_or_channel']
+    is_plat_mgr = profile.get('is_admin') or (plat in profile.get('allowed_courier_platforms', [])) or (plat in profile.get('allowed_courier_channels', []))
+    can_toggle = profile.get('is_admin') or profile.get('can_edit_dispatch') or is_plat_mgr
+    
+    if not can_toggle:
+        conn.close()
+        return jsonify({'error': 'You do not have permission to update packing or dispatch status for this PO.'}), 403
+        
+    data = request.json or {}
+    field = data.get('field')  # 'packed', 'pickup_ready', 'dispatched'
+    val = data.get('value')    # 1 or 0, or None to invert
+    
+    if field == 'packed':
+        new_val = (1 - (po['is_packed'] or 0)) if val is None else (1 if val else 0)
+        if new_val == 0:
+            cur.execute('UPDATE purchase_orders SET is_packed = 0, is_pickup_ready = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (po_id,))
+        else:
+            cur.execute('UPDATE purchase_orders SET is_packed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (po_id,))
+        msg = f"PO {po['po_number']} Packed status set to {'Yes' if new_val else 'No'}."
+        record_audit(conn, 'UPDATE_PO_PACKED', 'Purchase Orders', po['po_number'], f"{msg} by {user_name}")
+    elif field == 'pickup_ready':
+        new_val = (1 - (po['is_pickup_ready'] or 0)) if val is None else (1 if val else 0)
+        if new_val == 1:
+            cur.execute('UPDATE purchase_orders SET is_pickup_ready = 1, is_packed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (po_id,))
+        else:
+            cur.execute('UPDATE purchase_orders SET is_pickup_ready = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (po_id,))
+        msg = f"PO {po['po_number']} Pickup (Packed & Ready) set to {'Yes' if new_val else 'No'}."
+        record_audit(conn, 'UPDATE_PO_PICKUP_READY', 'Purchase Orders', po['po_number'], f"{msg} by {user_name}")
+    elif field == 'dispatched':
+        new_val = (1 - (po['is_dispatched'] or 0)) if val is None else (1 if val else 0)
+        cur.execute('UPDATE purchase_orders SET is_dispatched = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_val, po_id))
+        msg = f"PO {po['po_number']} Dispatch Status set to {'Yes' if new_val else 'No'}."
+        record_audit(conn, 'UPDATE_PO_DISPATCHED', 'Purchase Orders', po['po_number'], f"{msg} by {user_name}")
+    else:
+        conn.close()
+        return jsonify({'error': 'Invalid toggle field. Must be packed, pickup_ready, or dispatched.'}), 400
+        
+    conn.commit()
+    updated_po = cur.execute('SELECT * FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    conn.close()
+    
+    up_dict = dict(updated_po)
+    up_dict['packed_yes_no'] = 'Yes' if up_dict.get('is_packed') else 'No'
+    up_dict['pickup_ready_yes_no'] = 'Yes' if up_dict.get('is_pickup_ready') else 'No'
+    up_dict['dispatch_status_yes_no'] = 'Yes' if (up_dict.get('is_dispatched') or up_dict.get('status') in ['Partially Dispatched', 'Fully Dispatched', 'GRN Done']) else 'No'
+
+    return jsonify({
+        'status': 'success',
+        'message': msg,
+        'purchase_order': up_dict,
+        **up_dict
+    })
+
+@app.route('/api/purchase-orders', methods=['POST'])
+def create_purchase_order():
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    
+    data = request.json or {}
+    platform_or_channel = str(data.get('platform_or_channel', 'Blinkit')).strip()
+
+    # Permission check: PO creation is strictly for dedicated Platform Managers (or Admin)
+    is_platform_mgr = profile['is_admin'] or \
+        (platform_or_channel in profile['allowed_courier_platforms']) or \
+        (platform_or_channel in profile['allowed_courier_channels'])
+        
+    if not is_platform_mgr:
+        return jsonify({
+            'error': f"Permission Denied: Only the dedicated Platform Manager for '{platform_or_channel}' (or Admin) can create Purchase Orders for this channel."
+        }), 403
+        
+    po_number = str(data.get('po_number', '')).strip()
+    po_date = str(data.get('po_date', '')).strip() or datetime.date.today().strftime('%Y-%m-%d')
+    channel_type = 'gtmt' if platform_or_channel in CHANNELS else 'online'
+    location = str(data.get('location', '')).strip()
+    distributor_name = str(data.get('distributor_name', '')).strip()
+    appointment_date = str(data.get('appointment_date', '')).strip()
+    notes = str(data.get('notes', '')).strip()
+    po_doc_url = str(data.get('po_doc_url', '')).strip()
+    po_doc_name = str(data.get('po_doc_name', '')).strip()
+    status = str(data.get('status', 'Pending Fulfillment')).strip()
+    
+    items = data.get('items', [])
+    if not po_number:
+        return jsonify({'error': 'PO Number is required.'}), 400
+    if not items or len(items) == 0:
+        return jsonify({'error': 'A Purchase Order must contain at least 1 product line item.'}), 400
+        
+    conn = get_db()
+    cur = conn.cursor()
+    
+    existing = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_number,)).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({'error': f"PO Number '{po_number}' already exists in the system."}), 400
+        
+    total_items = len(items)
+    total_quantity = sum(int(it.get('ordered_quantity') or it.get('quantity') or 1) for it in items)
+    total_po_value = sum(float(it.get('total_value') or (int(it.get('ordered_quantity') or it.get('quantity') or 1) * float(it.get('unit_price', 0.0)))) for it in items)
+    
+    is_packed = 1 if data.get('is_packed') else 0
+    is_pickup_ready = 1 if data.get('is_pickup_ready') else 0
+    is_dispatched = 1 if data.get('is_dispatched') or status in ['Partially Dispatched', 'Fully Dispatched', 'GRN Done'] else 0
+
+    cur.execute('''
+    INSERT INTO purchase_orders (
+        po_number, po_date, platform_or_channel, channel_type, location, distributor_name,
+        appointment_date, total_items, total_quantity, total_po_value, status,
+        po_doc_url, po_doc_name, notes, created_by, is_packed, is_pickup_ready, is_dispatched
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        po_number, po_date, platform_or_channel, channel_type, location, distributor_name,
+        appointment_date, total_items, total_quantity, round(total_po_value, 2), status,
+        po_doc_url, po_doc_name, notes, user_email, is_packed, is_pickup_ready, is_dispatched
+    ))
+    po_id = cur.lastrowid
+    
+    is_gtmt = (platform_or_channel in ['GT', 'MT']) or (channel_type == 'gtmt')
+    for it in items:
+        sku = str(it.get('sku', '')).strip().upper()
+        p_name = str(it.get('product_name', '')).strip()
+        brand = str(it.get('brand', '')).strip()
+        category = str(it.get('category', 'General')).strip()
+        qty = int(it.get('ordered_quantity') or it.get('quantity') or 1)
+        tot_val = float(it.get('total_value') or 0.0)
+        unit_price = float(it.get('unit_price') or (round(tot_val / qty, 2) if (qty and tot_val) else 0.0))
+        if tot_val == 0.0 and unit_price > 0.0:
+            tot_val = round(qty * unit_price, 2)
+        item_notes = str(it.get('notes', '')).strip()
+        
+        cur.execute('''
+        INSERT INTO po_items (
+            po_id, po_number, sku, product_name, brand, category,
+            ordered_quantity, unit_price, total_value, dispatched_quantity, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        ''', (po_id, po_number, sku, p_name, brand, category, qty, unit_price, round(tot_val, 2), item_notes))
+        
+        # Auto-route linked row into relevant dispatch log with actual_sent = 0 (Pending Booking)
+        if is_gtmt:
+            channel = 'GT' if 'GT' in platform_or_channel.upper() else 'MT'
+            buyer = distributor_name or location or 'Distributor'
+            cur.execute('''
+            INSERT INTO dispatch_gt_mt (
+                dispatch_date, brand, product_name, sku, category, channel, buyer_distributor, location,
+                po_number, invoice_no, po_quantity, actual_sent, appointment_date,
+                courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes,
+                po_doc_url, po_doc_name, invoice_doc_url, invoice_doc_name, po_date, po_value
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, 0, ?, '', '', 0.0, 'Pending Booking', '', '', ?, ?, '', '', ?, ?)
+            ''', (
+                po_date or datetime.date.today().strftime('%Y-%m-%d'),
+                brand, p_name, sku, category, channel, buyer, location,
+                po_number, qty, appointment_date,
+                po_doc_url, po_doc_name, po_date, round(tot_val, 2)
+            ))
+        else:
+            cur.execute('''
+            INSERT INTO dispatch_online (
+                dispatch_date, brand, product_name, sku, category, platform, location,
+                po_number, po_quantity, actual_sent, appointment_date,
+                courier_name, tracking_id, courier_charges, dispatch_status, eway_bill_no, shipping_notes,
+                po_doc_url, po_doc_name, invoice_doc_url, invoice_doc_name, po_date, po_value
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, '', '', 0.0, 'Pending Booking', '', '', ?, ?, '', '', ?, ?)
+            ''', (
+                po_date or datetime.date.today().strftime('%Y-%m-%d'),
+                brand, p_name, sku, category, platform_or_channel, location,
+                po_number, qty, appointment_date,
+                po_doc_url, po_doc_name, po_date, round(tot_val, 2)
+            ))
+        
+    brands_in_po = list(set(it.get('brand', '') for it in items if it.get('brand')))
+    brands_summary = ", ".join(brands_in_po[:3]) + ("..." if len(brands_in_po) > 3 else "")
+    record_audit(
+        conn, 'CREATE_PURCHASE_ORDER', 'Purchase Orders', po_number,
+        f"Created PO {po_number} with {total_items} products ({total_quantity} units across {brands_summary}) for {platform_or_channel}"
+    )
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'message': f"Purchase Order '{po_number}' created successfully.",
+        'po_id': po_id,
+        'po_number': po_number
+    }), 201
+
+@app.route('/api/purchase-orders/<int:po_id>', methods=['PUT'])
+def update_purchase_order(po_id):
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    if not (profile['is_admin'] or profile['can_edit_inventory'] or profile['can_edit_dispatch']):
+        return jsonify({'error': 'Permission Denied: Unauthorized to edit Purchase Orders.'}), 403
+        
+    data = request.json or {}
+    conn = get_db()
+    cur = conn.cursor()
+    po = cur.execute('SELECT * FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    if not po:
+        conn.close()
+        return jsonify({'error': 'Purchase order not found'}), 404
+        
+    po_number = str(data.get('po_number', po['po_number'])).strip()
+    po_date = str(data.get('po_date', po['po_date'])).strip()
+    platform_or_channel = str(data.get('platform_or_channel', po['platform_or_channel'])).strip()
+    location = str(data.get('location', po['location'])).strip()
+    appointment_date = str(data.get('appointment_date', po['appointment_date'])).strip()
+    status = str(data.get('status', po['status'])).strip()
+    notes = str(data.get('notes', po['notes'])).strip()
+    
+    items = data.get('items')
+    if items is not None:
+        if len(items) == 0:
+            conn.close()
+            return jsonify({'error': 'PO must have at least 1 item.'}), 400
+        cur.execute('DELETE FROM po_items WHERE po_id = ?', (po_id,))
+        total_items = len(items)
+        total_quantity = sum(int(it.get('ordered_quantity', 1)) for it in items)
+        total_po_value = sum(float(it.get('total_value') or (int(it.get('ordered_quantity', 1)) * float(it.get('unit_price', 0.0)))) for it in items)
+        for it in items:
+            cur.execute('''
+            INSERT INTO po_items (
+                po_id, po_number, sku, product_name, brand, category,
+                ordered_quantity, unit_price, total_value, dispatched_quantity, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                po_id, po_number, it.get('sku', '').upper(), it.get('product_name', ''),
+                it.get('brand', ''), it.get('category', 'General'), int(it.get('ordered_quantity', 1)),
+                float(it.get('unit_price', 0.0)), round(float(it.get('total_value', 0.0)), 2),
+                int(it.get('dispatched_quantity', 0)), it.get('notes', '')
+            ))
+    else:
+        total_items = po['total_items']
+        total_quantity = po['total_quantity']
+        total_po_value = po['total_po_value']
+        
+    cur.execute('''
+    UPDATE purchase_orders
+    SET po_number = ?, po_date = ?, platform_or_channel = ?, location = ?,
+        appointment_date = ?, status = ?, notes = ?, total_items = ?,
+        total_quantity = ?, total_po_value = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+    ''', (po_number, po_date, platform_or_channel, location, appointment_date, status, notes, total_items, total_quantity, total_po_value, po_id))
+    
+    record_audit(conn, 'UPDATE_PURCHASE_ORDER', 'Purchase Orders', po_number, f"Updated PO {po_number}")
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success', 'message': f"Purchase Order '{po_number}' updated successfully."})
+
+@app.route('/api/purchase-orders/<int:po_id>', methods=['DELETE'])
+def delete_purchase_order(po_id):
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    if not (profile['is_admin'] or profile['can_edit_inventory']):
+        return jsonify({'error': 'Permission Denied: Only Admins and Inventory Leads can delete Purchase Orders.'}), 403
+        
+    conn = get_db()
+    cur = conn.cursor()
+    po = cur.execute('SELECT * FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    if not po:
+        conn.close()
+        return jsonify({'error': 'Purchase order not found'}), 404
+        
+    po_num = po['po_number']
+    # Clean up pending unfulfilled dispatch entries linked to this PO
+    cur.execute("DELETE FROM dispatch_online WHERE po_number = ? AND (actual_sent = 0 OR dispatch_status = 'Pending Booking')", (po_num,))
+    cur.execute("DELETE FROM dispatch_gt_mt WHERE po_number = ? AND (actual_sent = 0 OR dispatch_status = 'Pending Booking')", (po_num,))
+    cur.execute('DELETE FROM po_items WHERE po_id = ?', (po_id,))
+    cur.execute('DELETE FROM purchase_orders WHERE id = ?', (po_id,))
+    record_audit(conn, 'DELETE_PURCHASE_ORDER', 'Purchase Orders', po_num, f"Deleted Purchase Order {po_num}")
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success', 'message': f"Purchase Order '{po_num}' deleted successfully."})
+
+@app.route('/api/purchase-orders/<int:po_id>/grn', methods=['POST'])
+def mark_purchase_order_grn(po_id):
+    user_email, user_name = get_user_info()
+    profile = get_user_profile(user_email)
+    
+    conn = get_db()
+    cur = conn.cursor()
+    po = cur.execute('SELECT * FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    if not po:
+        conn.close()
+        return jsonify({'error': 'Purchase Order not found'}), 404
+        
+    po_platform = po['platform_or_channel']
+    is_authorized = profile['is_admin'] or \
+        (po_platform in profile['allowed_courier_platforms']) or \
+        (po_platform in profile['allowed_courier_channels'])
+        
+    if not is_authorized:
+        conn.close()
+        return jsonify({
+            'error': f"Permission Denied: Only the dedicated Platform Manager for '{po_platform}' (or Admin) can mark this PO as GRN Done."
+        }), 403
+        
+    data = request.json or {}
+    grn_number = str(data.get('grn_number', '')).strip()
+    grn_date = str(data.get('grn_date', '')).strip() or datetime.date.today().strftime('%Y-%m-%d')
+    grn_notes = str(data.get('grn_notes', '')).strip()
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    cur.execute('''
+    UPDATE purchase_orders
+    SET status = 'GRN Done',
+        is_packed = 1,
+        is_pickup_ready = 1,
+        is_dispatched = 1,
+        grn_number = ?,
+        grn_date = ?,
+        grn_notes = ?,
+        grn_done_by = ?,
+        grn_done_at = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+    ''', (grn_number, grn_date, grn_notes, user_email, now_str, po_id))
+    
+    po_number = po['po_number']
+    grn_tag = f" [GRN: {grn_number}]" if grn_number else " [GRN Done]"
+    
+    is_gtmt = (po['platform_or_channel'] in ['GT', 'MT']) or (po['channel_type'] == 'gtmt')
+    if is_gtmt:
+        cur.execute('''
+        UPDATE dispatch_gt_mt
+        SET dispatch_status = 'Delivered',
+            shipping_notes = CASE 
+                WHEN shipping_notes LIKE '%GRN%' THEN shipping_notes 
+                WHEN shipping_notes = '' THEN ? 
+                ELSE shipping_notes || ? 
+            END
+        WHERE po_number = ?
+        ''', (f"GRN Done on {grn_date}{grn_tag}", f" | GRN Done on {grn_date}{grn_tag}", po_number))
+    else:
+        cur.execute('''
+        UPDATE dispatch_online
+        SET dispatch_status = 'Delivered',
+            shipping_notes = CASE 
+                WHEN shipping_notes LIKE '%GRN%' THEN shipping_notes 
+                WHEN shipping_notes = '' THEN ? 
+                ELSE shipping_notes || ? 
+            END
+        WHERE po_number = ?
+        ''', (f"GRN Done on {grn_date}{grn_tag}", f" | GRN Done on {grn_date}{grn_tag}", po_number))
+        
+    record_audit(
+        conn, 'MARK_GRN_DONE', 'Purchase Orders', po_number,
+        f"Platform Manager {user_name} marked PO {po_number} as GRN Done (Ref: {grn_number or 'Confirmed'}, Date: {grn_date})"
+    )
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'message': f"Purchase Order '{po_number}' successfully marked as GRN Done.",
+        'po_id': po_id,
+        'po_number': po_number,
+        'grn_number': grn_number,
+        'grn_date': grn_date
+    })
+
+@app.route('/api/purchase-orders/mark-grn', methods=['POST'])
+def mark_purchase_order_grn_by_number():
+    data = request.json or {}
+    po_id = data.get('po_id')
+    po_number = str(data.get('po_number', '')).strip()
+    
+    conn = get_db()
+    cur = conn.cursor()
+    if po_id:
+        po = cur.execute('SELECT id FROM purchase_orders WHERE id = ?', (po_id,)).fetchone()
+    elif po_number:
+        po = cur.execute('SELECT id FROM purchase_orders WHERE po_number = ?', (po_number,)).fetchone()
+    else:
+        po = None
+    conn.close()
+    
+    if not po:
+        return jsonify({'error': 'Purchase Order not found'}), 404
+        
+    return mark_purchase_order_grn(po['id'])
+
 
 # --- SALES DATA & SMART DIRECT PLATFORM UPLOAD ---
 def auto_find_column(headers, candidate_keywords):
@@ -2736,6 +3914,1172 @@ def export_excel():
         as_attachment=True,
         download_name=filename
     )
+
+# ==============================================================================
+# BLINKIT AI REPLENISHMENT & STORAGE COST OPTIMIZATION ENGINE
+# ==============================================================================
+
+def parse_blinkit_inventory_data(file_content, cur):
+    """
+    Parses raw Blinkit Inventory CSV/Excel lines and upserts into blinkit_inventory_current.
+    """
+    if isinstance(file_content, bytes):
+        file_content = file_content.decode('utf-8', errors='ignore')
+    
+    lines = file_content.splitlines() if isinstance(file_content, str) else file_content
+    header_idx = -1
+    for i, l in enumerate(lines[:15]):
+        if 'Item ID' in l and ('Warehouse Facility' in l or 'Facility ID' in l):
+            header_idx = i
+            break
+            
+    if header_idx == -1:
+        return {'error': 'Could not detect valid Blinkit Inventory header row (expected Item ID, Warehouse Facility Name).'}
+        
+    reader = csv.DictReader(lines[header_idx:])
+    rows_processed = 0
+    facilities_seen = set()
+    
+    for r in reader:
+        try:
+            item_id = int(str(r.get('Item ID', '')).strip())
+            fac_id = int(str(r.get('Warehouse Facility ID', '')).strip())
+        except (ValueError, TypeError):
+            continue
+            
+        item_name = str(r.get('Item Name', '')).strip()
+        brand_name = str(r.get('Brand Name', '')).strip()
+        upc = str(r.get('UPC', '')).strip()
+        uom = str(r.get('UoM', '')).strip()
+        fac_name = str(r.get('Warehouse Facility Name', '')).strip()
+        facilities_seen.add(fac_name)
+        
+        def safe_int(key):
+            try:
+                v = r.get(key, 0)
+                return int(float(str(v).replace(',', '').strip() or 0))
+            except:
+                return 0
+                
+        net_sched = safe_int('Net scheduled inventory')
+        incom_sched = safe_int('Incoming scheduled inventory')
+        recalled = safe_int('Recalled inventory')
+        tot_sellable = safe_int('Total sellable')
+        wh_stock = safe_int('Warehouse')
+        in_between = safe_int('In-between')
+        darkstore = safe_int('Darkstore')
+        tot_unsellable = safe_int('Total unsellable')
+        damaged = safe_int('Damaged')
+        lost = safe_int('Lost')
+        expired = safe_int('Expired')
+        near_expiry = safe_int('Near Expiry')
+        s7 = safe_int('Last 7 days')
+        s15 = safe_int('Last 15 days')
+        s30 = safe_int('Last 30 days')
+        
+        cur.execute('''
+        INSERT INTO blinkit_inventory_current (
+            item_id, facility_id, item_name, brand_name, upc, uom, facility_name,
+            net_scheduled, incoming_scheduled, recalled_inventory, total_sellable,
+            warehouse_stock, in_between_stock, darkstore_stock, total_unsellable,
+            damaged, lost, expired, near_expiry, sales_7d, sales_15d, sales_30d, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(item_id, facility_id) DO UPDATE SET
+            item_name=excluded.item_name,
+            brand_name=excluded.brand_name,
+            upc=excluded.upc,
+            uom=excluded.uom,
+            facility_name=excluded.facility_name,
+            net_scheduled=excluded.net_scheduled,
+            incoming_scheduled=excluded.incoming_scheduled,
+            recalled_inventory=excluded.recalled_inventory,
+            total_sellable=excluded.total_sellable,
+            warehouse_stock=excluded.warehouse_stock,
+            in_between_stock=excluded.in_between_stock,
+            darkstore_stock=excluded.darkstore_stock,
+            total_unsellable=excluded.total_unsellable,
+            damaged=excluded.damaged,
+            lost=excluded.lost,
+            expired=excluded.expired,
+            near_expiry=excluded.near_expiry,
+            sales_7d=excluded.sales_7d,
+            sales_15d=excluded.sales_15d,
+            sales_30d=excluded.sales_30d,
+            updated_at=CURRENT_TIMESTAMP
+        ''', (
+            item_id, fac_id, item_name, brand_name, upc, uom, fac_name,
+            net_sched, incom_sched, recalled, tot_sellable,
+            wh_stock, in_between, darkstore, tot_unsellable,
+            damaged, lost, expired, near_expiry, s7, s15, s30
+        ))
+        rows_processed += 1
+        
+    return {
+        'status': 'success',
+        'rows_processed': rows_processed,
+        'facilities_count': len(facilities_seen),
+        'facilities': sorted(list(facilities_seen))
+    }
+
+def parse_blinkit_sales_data(file_content, cur):
+    """
+    Parses Blinkit Daily Sales Order CSV lines and deduplicates with INSERT OR IGNORE by order_id.
+    """
+    if isinstance(file_content, bytes):
+        file_content = file_content.decode('utf-8', errors='ignore')
+        
+    lines = file_content.splitlines() if isinstance(file_content, str) else file_content
+    reader = csv.DictReader(lines)
+    
+    total_in_file = 0
+    new_inserted = 0
+    dates_seen = set()
+    
+    for r in reader:
+        order_id = str(r.get('Order Id', '')).strip()
+        if not order_id:
+            continue
+        total_in_file += 1
+        
+        order_date = str(r.get('Order Date', '')).strip()
+        if order_date:
+            dates_seen.add(order_date)
+            
+        try:
+            item_id = int(str(r.get('Item Id', '')).strip())
+        except:
+            item_id = 0
+            
+        p_name = str(r.get('Product Name', '')).strip()
+        b_name = str(r.get('Brand Name', '')).strip()
+        upc = str(r.get('UPC', '')).strip()
+        supply_city = str(r.get('Supply City', '')).strip()
+        supply_state = str(r.get('Supply State', '')).strip()
+        cust_city = str(r.get('Customer City', '')).strip()
+        cust_state = str(r.get('Customer State', '')).strip()
+        order_status = str(r.get('Order Status', 'DELIVERED')).strip()
+        
+        try:
+            qty = int(float(str(r.get('Quantity', 1)).strip() or 1))
+        except:
+            qty = 1
+        try:
+            mrp = float(str(r.get('MRP (Rs)', 0)).replace(',', '').strip() or 0.0)
+        except:
+            mrp = 0.0
+        try:
+            selling_price = float(str(r.get('Selling Price (Rs)', 0)).replace(',', '').strip() or 0.0)
+        except:
+            selling_price = 0.0
+        try:
+            tot_gross = float(str(r.get('Total Gross Bill Amount', 0)).replace(',', '').strip() or 0.0)
+        except:
+            tot_gross = 0.0
+            
+        cur.execute('''
+        INSERT OR IGNORE INTO blinkit_sales_orders (
+            order_id, order_date, item_id, product_name, brand_name, upc,
+            supply_city, supply_state, customer_city, customer_state, order_status,
+            quantity, mrp, selling_price, total_gross_amount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            order_id, order_date, item_id, p_name, b_name, upc,
+            supply_city, supply_state, cust_city, cust_state, order_status,
+            qty, mrp, selling_price, tot_gross
+        ))
+        if cur.rowcount > 0:
+            new_inserted += 1
+            
+    skipped = total_in_file - new_inserted
+    min_date = min(dates_seen) if dates_seen else '-'
+    max_date = max(dates_seen) if dates_seen else '-'
+
+    # Anti-overlap sync to central sales_data:
+    for d in dates_seen:
+        cur.execute('DELETE FROM sales_data WHERE platform = ? AND sale_date = ?', ('Blinkit', d))
+        cur.execute('''
+        INSERT INTO sales_data (
+            sale_date, platform, sku, product_name, brand, units_sold, revenue, store_location, source_file, uploaded_by
+        )
+        SELECT b.order_date, 'Blinkit', 
+               COALESCE((SELECT p.sku FROM products p WHERE LOWER(p.name) LIKE '%' || LOWER(b.product_name) || '%' OR LOWER(b.product_name) LIKE '%' || LOWER(p.name) || '%' LIMIT 1), 'BLK-' || b.item_id),
+               b.product_name, b.brand_name, SUM(b.quantity), SUM(b.total_gross_amount), b.supply_city, 'Blinkit Orders', 'Blinkit System'
+        FROM blinkit_sales_orders b
+        WHERE b.order_date = ?
+        GROUP BY b.order_date, b.item_id, b.supply_city
+        ''', (d,))
+    
+    return {
+        'status': 'success',
+        'total_orders_in_file': total_in_file,
+        'new_orders_inserted': new_inserted,
+        'existing_orders_skipped': skipped,
+        'date_range': f"{min_date} to {max_date}" if min_date != '-' else '-'
+    }
+
+def seed_initial_blinkit_data_if_empty():
+    """Auto-seeds initial Blinkit inventory and sales datasets if current tables are empty."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        count = cur.execute('SELECT COUNT(*) FROM blinkit_inventory_current').fetchone()[0]
+        if count == 0:
+            brain_uploads = os.path.join(os.path.expanduser('~'), '.gemini', 'antigravity', 'brain', 'c18c0bb2-1dda-4e5b-89b7-d36de3bd9d79', '.user_uploaded')
+            p_inv = os.path.join(brain_uploads, 'media_1790511403279.csv')
+            p_sales = os.path.join(brain_uploads, 'media_1790511445429.csv')
+            if os.path.exists(p_inv):
+                with open(p_inv, 'rb') as f:
+                    parse_blinkit_inventory_data(f.read(), cur)
+            if os.path.exists(p_sales):
+                with open(p_sales, 'rb') as f:
+                    parse_blinkit_sales_data(f.read(), cur)
+            conn.commit()
+            print("Auto-seeded Blinkit inventory & sales datasets successfully.")
+        conn.close()
+    except Exception as e:
+        print("Blinkit seed notice:", e)
+
+seed_initial_blinkit_data_if_empty()
+
+# ==============================================================================
+# QUICK-COMMERCE MULTI-PLATFORM PARSERS (ZEPTO & INSTAMART) WITH ANTI-OVERLAP
+# ==============================================================================
+
+def normalize_date_str(d_str):
+    """Normalizes any date string (DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD) into standard ISO YYYY-MM-DD."""
+    if not d_str:
+        return ''
+    d_str = str(d_str).strip().strip('"').strip("'")
+    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d', '%Y/%m/%d', '%d-%b-%Y', '%d %b %Y'):
+        try:
+            return datetime.datetime.strptime(d_str, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    return d_str
+
+ZEPTO_EAN_MAP = {
+    '8908028836101': ('CS0007', 'California Skin+ Triple Action Acne Scar Clear', 'California Skin+'),
+    '8908028836040': ('CS0005', 'California Skin+ One Hour Acne Spot Relief', 'California Skin+'),
+    '8908028836194': ('NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies'),
+    '8908028836156': ('NL003', 'NutraBites Baked Bhujia', 'NutraBites'),
+    '8908028836125': ('CS0006', 'California Skin+ No-Cast, Hyaluronic Glow Sunscreen SPF50++++', 'California Skin+'),
+    '8908028836095': ('CS0003', 'California Skin+ Triple Action Acne Relief Pimple Patches', 'California Skin+'),
+    '8908028836026': ('CS0002', 'California Skin+ Acne Control Serum', 'California Skin+'),
+    '8908028836002': ('CS0001', 'California Skin+ Acne Control Face Wash Cleanser', 'California Skin+'),
+}
+
+INSTAMART_KEYWORD_MAP = [
+    ('banana chips', ('NL001', 'NutraChips Rock Salt Banana Chips', 'NutraChips')),
+    ('ragi chips', ('NL002', 'NutraChips Baked Ragi Chips', 'NutraChips')),
+    ('cookies', ('NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies')),
+    ('bhujia', ('NL003', 'NutraBites Baked Bhujia', 'NutraBites')),
+    ('patches', ('CS0003', 'California Skin+ Triple Action Acne Relief Pimple Patches', 'California Skin+')),
+    ('spot relief', ('CS0005', 'California Skin+ One Hour Acne Spot Relief', 'California Skin+')),
+    ('scar clear', ('CS0007', 'California Skin+ Triple Action Acne Scar Clear', 'California Skin+')),
+    ('handwash', ('NL007', 'Handwash', 'Derma+')),
+    ('sleep gummies', ('NL006', 'Sleep Supplements Gummies', 'NutraGummies')),
+    ('hair skin gummies', ('NL005', 'Hair & Skin Supplements Gummies', 'NutraGummies')),
+    ('cleanser', ('CS0001', 'California Skin+ Acne Control Face Wash Cleanser', 'California Skin+')),
+    ('serum', ('CS0002', 'California Skin+ Acne Control Serum', 'California Skin+')),
+    ('sunscreen', ('CS0006', 'California Skin+ No-Cast, Hyaluronic Glow Sunscreen SPF50++++', 'California Skin+')),
+    ('moisturizer', ('CS0004', 'Moisturizer', 'California Skin+')),
+]
+
+def map_product_to_internal(sku_raw, name_raw, ean=None, cur=None):
+    """Maps platform identifiers (EAN, campaign name, raw SKU) to internal product catalog."""
+    if ean:
+        clean_ean = str(ean).strip()
+        if clean_ean in ZEPTO_EAN_MAP:
+            return ZEPTO_EAN_MAP[clean_ean]
+            
+    clean_name = str(name_raw or '').strip().lower()
+    for kw, target in INSTAMART_KEYWORD_MAP:
+        if kw in clean_name:
+            return target
+            
+    if cur and clean_name:
+        try:
+            db_prods = cur.execute('SELECT sku, name, brand FROM products').fetchall()
+            for p in db_prods:
+                p_name = p['name'].lower()
+                if p_name in clean_name or clean_name in p_name:
+                    return (p['sku'], p['name'], p['brand'])
+        except Exception:
+            pass
+            
+    return (sku_raw or 'UNKNOWN', name_raw or 'Unmapped Product', 'Other')
+
+def parse_zepto_sales_data(file_content, filename='Zepto_Sales.csv', user_info='Admin', cur=None):
+    """
+    Parses Zepto Daily Sales CSV/Excel lines.
+    Deduplicates strictly using UNIQUE(sale_date, sku_number, city) with ON CONFLICT DO UPDATE.
+    Guarantees zero overlap when same dates are re-uploaded.
+    """
+    if isinstance(file_content, bytes):
+        if filename.lower().endswith('.xlsx') or filename.lower().endswith('.xls'):
+            wb = openpyxl.load_workbook(BytesIO(file_content), data_only=True)
+            sheet = wb.active
+            lines = []
+            for row in sheet.iter_rows(values_only=True):
+                lines.append(','.join(['' if v is None else str(v).replace(',', ' ') for v in row]))
+            file_content = '\n'.join(lines)
+        else:
+            file_content = file_content.decode('utf-8', errors='ignore')
+            
+    lines = file_content.splitlines() if isinstance(file_content, str) else file_content
+    header_idx = 0
+    for idx, l in enumerate(lines[:10]):
+        if 'SKU Number' in l or 'SKU Name' in l:
+            header_idx = idx
+            break
+            
+    reader = csv.DictReader(lines[header_idx:])
+    total_in_file = 0
+    upserted_count = 0
+    dates_seen = set()
+    total_units = 0
+    total_gmv = 0.0
+    cities_seen = set()
+    
+    for r in reader:
+        raw_date = str(r.get('Date', '')).strip()
+        sku_num = str(r.get('SKU Number', '')).strip()
+        if not raw_date or not sku_num:
+            continue
+            
+        norm_date = normalize_date_str(raw_date)
+        dates_seen.add(norm_date)
+        total_in_file += 1
+        
+        sku_name = str(r.get('SKU Name', '')).strip()
+        ean = str(r.get('EAN', '')).strip()
+        cat = str(r.get('SKU Category', '')).strip()
+        subcat = str(r.get('SKU Sub Category', '')).strip()
+        brand = str(r.get('Brand Name', '')).strip()
+        mfg_name = str(r.get('Manufacturer Name', '')).strip()
+        mfg_id = str(r.get('Manufacturer ID', '')).strip()
+        city = str(r.get('City', 'Unknown')).strip()
+        cities_seen.add(city)
+        
+        try:
+            units = int(float(str(r.get('Sales (Qty) - Units', 0)).replace(',', '').strip() or 0))
+        except:
+            units = 0
+        try:
+            mrp = float(str(r.get('MRP', 0)).replace(',', '').strip() or 0.0)
+        except:
+            mrp = 0.0
+        try:
+            gmv = float(str(r.get('Gross Merchandise Value', 0)).replace(',', '').strip() or 0.0)
+        except:
+            gmv = 0.0
+            
+        total_units += units
+        total_gmv += gmv
+        
+        matched_sku, matched_name, matched_brand = map_product_to_internal(sku_num, sku_name, ean, cur)
+        if not brand and matched_brand:
+            brand = matched_brand
+            
+        cur.execute('''
+        INSERT INTO zepto_sales_orders (
+            sale_date, sku_number, sku_name, ean, sku_category, sku_sub_category,
+            brand_name, manufacturer_name, manufacturer_id, city,
+            units_sold, mrp, gmv, matched_sku, matched_product_name, source_file, uploaded_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sale_date, sku_number, city) DO UPDATE SET
+            units_sold = excluded.units_sold,
+            mrp = excluded.mrp,
+            gmv = excluded.gmv,
+            sku_name = excluded.sku_name,
+            ean = excluded.ean,
+            sku_category = excluded.sku_category,
+            sku_sub_category = excluded.sku_sub_category,
+            brand_name = excluded.brand_name,
+            manufacturer_name = excluded.manufacturer_name,
+            matched_sku = excluded.matched_sku,
+            matched_product_name = excluded.matched_product_name,
+            source_file = excluded.source_file,
+            uploaded_by = excluded.uploaded_by,
+            created_at = CURRENT_TIMESTAMP
+        ''', (
+            norm_date, sku_num, sku_name, ean, cat, subcat,
+            brand, mfg_name, mfg_id, city,
+            units, mrp, gmv, matched_sku, matched_name, filename, user_info
+        ))
+        upserted_count += 1
+        
+    # Idempotent anti-overlap sync to central sales_data:
+    for d in dates_seen:
+        cur.execute('DELETE FROM sales_data WHERE platform = ? AND sale_date = ?', ('Zepto', d))
+        cur.execute('''
+        INSERT INTO sales_data (
+            sale_date, platform, sku, product_name, brand, units_sold, revenue, store_location, source_file, uploaded_by
+        )
+        SELECT sale_date, 'Zepto', matched_sku, matched_product_name, brand_name, SUM(units_sold), SUM(gmv), city, source_file, uploaded_by
+        FROM zepto_sales_orders
+        WHERE sale_date = ?
+        GROUP BY sale_date, matched_sku, city
+        ''', (d,))
+        
+    return {
+        'status': 'success',
+        'platform': 'Zepto',
+        'total_rows_in_file': total_in_file,
+        'upserted_records': upserted_count,
+        'total_units_sold': total_units,
+        'total_gmv': round(total_gmv, 2),
+        'unique_cities': len(cities_seen),
+        'dates': sorted(list(dates_seen)),
+        'date_range': f"{min(dates_seen)} to {max(dates_seen)}" if dates_seen else '-'
+    }
+
+def parse_instamart_sales_data(file_content, filename='Instamart_Sales.csv', user_info='Admin', cur=None):
+    """
+    Parses Swiggy Instamart Daily Product Sales Report (.xlsx / .csv).
+    Also supports Campaign Ad Report as fallback.
+    Deduplicates strictly using UNIQUE(sale_date, item_code, city, store_id) with ON CONFLICT DO UPDATE.
+    Guarantees zero overlap when same dates are re-uploaded.
+    """
+    records_to_process = []
+    is_excel = filename.lower().endswith('.xlsx') or filename.lower().endswith('.xls')
+    
+    if is_excel and isinstance(file_content, bytes):
+        wb = openpyxl.load_workbook(BytesIO(file_content), data_only=True)
+        sheet = wb['Sales Report'] if 'Sales Report' in wb.sheetnames else wb.active
+        
+        header_row = -1
+        headers = {}
+        for r in range(1, 25):
+            row_vals = [sheet.cell(row=r, column=c).value for c in range(1, sheet.max_column + 1)]
+            str_vals = [str(v).strip().upper() for v in row_vals if v is not None]
+            if any(h in str_vals for h in ['ORDERED_DATE', 'ORDER_DATE', 'UNITS_SOLD', 'ITEM_CODE', 'CAMPAIGN_ID']):
+                header_row = r
+                headers = {str(sheet.cell(row=r, column=c).value).strip().upper(): c for c in range(1, sheet.max_column + 1) if sheet.cell(row=r, column=c).value}
+                break
+                
+        if header_row == -1:
+            return {'status': 'error', 'error': 'Could not find Instamart table header (expected ORDERED_DATE, UNITS_SOLD, or ITEM_CODE)'}
+            
+        for r in range(header_row + 1, sheet.max_row + 1):
+            def get_cell(patterns, default=''):
+                for pat in patterns:
+                    if pat in headers:
+                        v = sheet.cell(row=r, column=headers[pat]).value
+                        if v is not None:
+                            return v
+                for k, col in headers.items():
+                    for pat in patterns:
+                        if pat in k:
+                            v = sheet.cell(row=r, column=col).value
+                            if v is not None:
+                                return v
+                return default
+                
+            rec = {
+                'date': normalize_date_str(get_cell(['ORDERED_DATE', 'ORDER_DATE', 'SALE_DATE', 'DATE', 'CAMPAIGN_START_DATE'])),
+                'brand': str(get_cell(['BRAND_NAME', 'BRAND'], '')).strip(),
+                'city': str(get_cell(['CITY'], 'Unknown')).strip(),
+                'area': str(get_cell(['AREA_NAME', 'AREA', 'POD'], '')).strip(),
+                'store': str(get_cell(['STORE_ID', 'POD_ID', 'STORE'], '')).strip(),
+                'product_name': str(get_cell(['PRODUCT_NAME', 'ITEM_NAME', 'CAMPAIGN_NAME'], '')).strip(),
+                'variant': str(get_cell(['VARIANT', 'SKU_NAME'], '')).strip(),
+                'item_code': str(get_cell(['ITEM_CODE', 'SKU_NUMBER', 'SKU', 'CAMPAIGN_ID'], '')).strip(),
+                'units': get_cell(['UNITS_SOLD', 'TOTAL_CONVERSIONS', 'QUANTITY', 'QTY'], 0),
+                'mrp': get_cell(['BASE_MRP', 'MRP'], 0.0),
+                'gmv': get_cell(['TOTAL_GMV', 'GMV', 'REVENUE', 'TOTAL_AMOUNT'], 0.0)
+            }
+            if rec['date'] and (rec['item_code'] or rec['product_name']):
+                records_to_process.append(rec)
+    else:
+        if isinstance(file_content, bytes):
+            file_content = file_content.decode('utf-8', errors='ignore')
+        lines = file_content.splitlines() if isinstance(file_content, str) else file_content
+        
+        default_date = ''
+        for l in lines[:15]:
+            if 'From Date' in l:
+                parts = [p.strip().strip('"') for p in l.split(',')]
+                if len(parts) >= 2 and parts[1]:
+                    default_date = normalize_date_str(parts[1])
+                    
+        header_idx = -1
+        for i, l in enumerate(lines[:25]):
+            up_l = l.upper()
+            if any(h in up_l for h in ['ORDERED_DATE', 'ORDER_DATE', 'UNITS_SOLD', 'ITEM_CODE', 'CAMPAIGN_ID']):
+                header_idx = i
+                break
+                
+        if header_idx == -1:
+            return {'status': 'error', 'error': 'Could not find Instamart table header (expected ORDERED_DATE, UNITS_SOLD, or ITEM_CODE)'}
+            
+        reader = csv.DictReader(lines[header_idx:])
+        for r in reader:
+            clean_r = {str(k).strip().upper(): v for k, v in r.items() if k}
+            
+            def get_r_val(patterns, default=''):
+                for pat in patterns:
+                    if pat in clean_r and clean_r[pat] is not None:
+                        return clean_r[pat]
+                for k, v in clean_r.items():
+                    for pat in patterns:
+                        if pat in k and v is not None:
+                            return v
+                return default
+                
+            d_val = normalize_date_str(get_r_val(['ORDERED_DATE', 'ORDER_DATE', 'SALE_DATE', 'DATE', 'CAMPAIGN_START_DATE'])) or default_date
+            rec = {
+                'date': d_val,
+                'brand': str(get_r_val(['BRAND_NAME', 'BRAND'], '')).strip(),
+                'city': str(get_r_val(['CITY'], 'Unknown')).strip(),
+                'area': str(get_r_val(['AREA_NAME', 'AREA', 'POD'], '')).strip(),
+                'store': str(get_r_val(['STORE_ID', 'POD_ID', 'STORE'], '')).strip(),
+                'product_name': str(get_r_val(['PRODUCT_NAME', 'ITEM_NAME', 'CAMPAIGN_NAME'], '')).strip(),
+                'variant': str(get_r_val(['VARIANT', 'SKU_NAME'], '')).strip(),
+                'item_code': str(get_r_val(['ITEM_CODE', 'SKU_NUMBER', 'SKU', 'CAMPAIGN_ID'], '')).strip(),
+                'units': get_r_val(['UNITS_SOLD', 'TOTAL_CONVERSIONS', 'QUANTITY', 'QTY'], 0),
+                'mrp': get_r_val(['BASE_MRP', 'MRP'], 0.0),
+                'gmv': get_r_val(['TOTAL_GMV', 'GMV', 'REVENUE', 'TOTAL_AMOUNT'], 0.0)
+            }
+            if rec['date'] and (rec['item_code'] or rec['product_name']):
+                records_to_process.append(rec)
+
+    total_in_file = len(records_to_process)
+    upserted_count = 0
+    dates_seen = set()
+    total_units = 0
+    total_gmv = 0.0
+    cities_seen = set()
+    
+    for r in records_to_process:
+        sale_date = r['date']
+        item_code = r['item_code'] or 'INSTA-ITEM'
+        p_name = r['product_name'] or 'Instamart Item'
+        variant = r['variant']
+        brand_name = r['brand']
+        city = r['city'] or 'Unknown'
+        area_name = r['area']
+        store_id = r['store']
+        
+        try:
+            units = int(float(str(r['units']).replace(',', '').strip() or 0))
+        except:
+            units = 0
+        try:
+            mrp = float(str(r['mrp']).replace(',', '').strip() or 0.0)
+        except:
+            mrp = 0.0
+        try:
+            gmv = float(str(r['gmv']).replace(',', '').strip() or 0.0)
+        except:
+            gmv = 0.0
+            
+        dates_seen.add(sale_date)
+        cities_seen.add(city)
+        total_units += units
+        total_gmv += gmv
+        
+        matched_sku, matched_name, matched_brand = map_product_to_internal(item_code, p_name, None, cur)
+        if not brand_name or brand_name.lower() == 'california nutralife wellness private limited':
+            brand_name = matched_brand
+            
+        cur.execute('''
+        INSERT INTO instamart_sales_orders (
+            sale_date, item_code, product_name, variant, brand_name,
+            city, area_name, store_id, units_sold, mrp, gmv,
+            matched_sku, matched_product_name, source_file, uploaded_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sale_date, item_code, city, store_id) DO UPDATE SET
+            units_sold = excluded.units_sold,
+            mrp = excluded.mrp,
+            gmv = excluded.gmv,
+            product_name = excluded.product_name,
+            variant = excluded.variant,
+            brand_name = excluded.brand_name,
+            area_name = excluded.area_name,
+            matched_sku = excluded.matched_sku,
+            matched_product_name = excluded.matched_product_name,
+            source_file = excluded.source_file,
+            uploaded_by = excluded.uploaded_by,
+            created_at = CURRENT_TIMESTAMP
+        ''', (
+            sale_date, item_code, p_name, variant, brand_name,
+            city, area_name, store_id, units, mrp, gmv,
+            matched_sku, matched_name, filename, user_info
+        ))
+        upserted_count += 1
+        
+    # Idempotent anti-overlap sync to central sales_data:
+    for d in dates_seen:
+        cur.execute('DELETE FROM sales_data WHERE platform = ? AND sale_date = ?', ('Instamart', d))
+        cur.execute('''
+        INSERT INTO sales_data (
+            sale_date, platform, sku, product_name, brand, units_sold, revenue, store_location, source_file, uploaded_by
+        )
+        SELECT sale_date, 'Instamart', matched_sku, matched_product_name, brand_name, SUM(units_sold), SUM(gmv), city, 'Instamart Sales Report', ?
+        FROM instamart_sales_orders
+        WHERE sale_date = ?
+        GROUP BY sale_date, matched_sku, city
+        ''', (user_info, d))
+        
+    return {
+        'status': 'success',
+        'platform': 'Instamart',
+        'total_rows_in_file': total_in_file,
+        'upserted_records': upserted_count,
+        'total_units_sold': total_units,
+        'total_gmv': round(total_gmv, 2),
+        'unique_cities': len(cities_seen),
+        'dates': sorted(list(dates_seen)),
+        'date_range': f"{min(dates_seen)} to {max(dates_seen)}" if dates_seen else '-'
+    }
+
+def seed_initial_quick_commerce_data_if_empty():
+    """Auto-seeds initial Zepto & Instamart sales data from artifacts directory if tables are empty."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        brain_uploads = os.path.join(os.path.expanduser('~'), '.gemini', 'antigravity', 'brain', 'c18c0bb2-1dda-4e5b-89b7-d36de3bd9d79', '.user_uploaded')
+        
+        # Zepto seed
+        z_count = cur.execute('SELECT COUNT(*) FROM zepto_sales_orders').fetchone()[0]
+        if z_count == 0:
+            z_path = os.path.join(brain_uploads, 'media_1790524533163.csv')
+            if os.path.exists(z_path):
+                with open(z_path, 'rb') as f:
+                    parse_zepto_sales_data(f.read(), 'Zepto_25-09-2026.csv', 'System Initial Seed', cur)
+                print("Auto-seeded Zepto sales dataset successfully.")
+                
+        # Instamart seed
+        i_count = cur.execute('SELECT COUNT(*) FROM instamart_sales_orders').fetchone()[0]
+        if i_count == 0:
+            i_path = os.path.join(brain_uploads, 'media_1790525376736.csv')
+            if os.path.exists(i_path):
+                with open(i_path, 'rb') as f:
+                    parse_instamart_sales_data(f.read(), 'Instamart_25-09-2026.csv', 'System Initial Seed', cur)
+                print("Auto-seeded Instamart sales dataset successfully.")
+                
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Quick-commerce seed notice:", e)
+
+seed_initial_quick_commerce_data_if_empty()
+
+
+@app.route('/api/blinkit/upload-inventory', methods=['POST'])
+def upload_blinkit_inventory():
+    user_email, user_name = get_user_info()
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+        
+    f = request.files['file']
+    filename = (f.filename or '').lower()
+    content = f.read()
+    
+    if filename.endswith('.xlsx') or filename.endswith('.xls'):
+        wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+        sheet = wb.active
+        lines = []
+        for row in sheet.iter_rows(values_only=True):
+            lines.append(','.join(['' if v is None else str(v).replace(',', ' ') for v in row]))
+        content = '\n'.join(lines)
+        
+    conn = get_db()
+    cur = conn.cursor()
+    res = parse_blinkit_inventory_data(content, cur)
+    if 'error' in res:
+        conn.close()
+        return jsonify(res), 400
+        
+    conn.commit()
+    record_audit(conn, 'UPLOAD_BLINKIT_INVENTORY', 'Blinkit Inventory', f.filename, f"Processed {res['rows_processed']} inventory records across {res['facilities_count']} facilities by {user_name}")
+    conn.close()
+    return jsonify(res)
+
+@app.route('/api/blinkit/upload-sales', methods=['POST'])
+def upload_blinkit_sales():
+    user_email, user_name = get_user_info()
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+        
+    f = request.files['file']
+    filename = (f.filename or '').lower()
+    content = f.read()
+    
+    if filename.endswith('.xlsx') or filename.endswith('.xls'):
+        wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+        sheet = wb.active
+        lines = []
+        for row in sheet.iter_rows(values_only=True):
+            lines.append(','.join(['' if v is None else str(v).replace(',', ' ') for v in row]))
+        content = '\n'.join(lines)
+        
+    conn = get_db()
+    cur = conn.cursor()
+    res = parse_blinkit_sales_data(content, cur)
+    conn.commit()
+    record_audit(conn, 'UPLOAD_BLINKIT_SALES', 'Blinkit Sales Orders', f.filename, f"Ingested {res['new_orders_inserted']} new orders, skipped {res['existing_orders_skipped']} duplicates ({res['date_range']}) by {user_name}")
+    conn.close()
+    return jsonify(res)
+
+# ==============================================================================
+# QUICK-COMMERCE MULTI-PLATFORM API ENDPOINTS (ZEPTO, INSTAMART, BLINKIT & HUB)
+# ==============================================================================
+
+@app.route('/api/zepto/upload-sales', methods=['POST'])
+def upload_zepto_sales():
+    user_email, user_name = get_user_info()
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+        
+    f = request.files['file']
+    filename = (f.filename or 'Zepto_Sales.csv')
+    content = f.read()
+    
+    conn = get_db()
+    cur = conn.cursor()
+    res = parse_zepto_sales_data(content, filename, f"{user_name} ({user_email})", cur)
+    conn.commit()
+    record_audit(conn, 'UPLOAD_ZEPTO_SALES', 'Zepto Sales', filename, f"Ingested/updated {res['upserted_records']} Zepto sales rows ({res['total_units_sold']} units, ₹{res['total_gmv']:,.2f}) for dates: {res['date_range']} by {user_name}")
+    conn.close()
+    return jsonify(res)
+
+@app.route('/api/zepto/sales-summary', methods=['GET'])
+def get_zepto_sales_summary():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    city_filter = request.args.get('city', 'All').strip()
+    date_filter = request.args.get('date', 'All').strip()
+    
+    where_clauses = []
+    params = []
+    if city_filter != 'All':
+        where_clauses.append('city = ?')
+        params.append(city_filter)
+    if date_filter != 'All':
+        where_clauses.append('sale_date = ?')
+        params.append(date_filter)
+        
+    where_str = (' WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+    
+    kpi_row = cur.execute(f'''
+    SELECT 
+        COUNT(*) as total_rows,
+        COALESCE(SUM(units_sold), 0) as total_units,
+        COALESCE(SUM(gmv), 0.0) as total_gmv,
+        COUNT(DISTINCT city) as total_cities,
+        COUNT(DISTINCT sku_number) as total_skus,
+        MIN(sale_date) as min_date,
+        MAX(sale_date) as max_date
+    FROM zepto_sales_orders {where_str}
+    ''', params).fetchone()
+    
+    city_rows = cur.execute(f'''
+    SELECT 
+        city,
+        SUM(units_sold) as units,
+        SUM(gmv) as gmv,
+        COUNT(DISTINCT sku_number) as skus_count
+    FROM zepto_sales_orders {where_str}
+    GROUP BY city
+    ORDER BY units DESC
+    LIMIT 30
+    ''', params).fetchall()
+    
+    sku_rows = cur.execute(f'''
+    SELECT 
+        matched_sku,
+        matched_product_name,
+        brand_name,
+        SUM(units_sold) as units,
+        SUM(gmv) as gmv
+    FROM zepto_sales_orders {where_str}
+    GROUP BY matched_sku, matched_product_name, brand_name
+    ORDER BY units DESC
+    ''', params).fetchall()
+    
+    all_cities = [r[0] for r in cur.execute('SELECT DISTINCT city FROM zepto_sales_orders ORDER BY city').fetchall()]
+    all_dates = [r[0] for r in cur.execute('SELECT DISTINCT sale_date FROM zepto_sales_orders ORDER BY sale_date DESC').fetchall()]
+    
+    records = cur.execute(f'''
+    SELECT 
+        id, sale_date, sku_number, sku_name, ean, city, units_sold, mrp, gmv,
+        matched_sku, matched_product_name, brand_name, source_file, created_at
+    FROM zepto_sales_orders {where_str}
+    ORDER BY sale_date DESC, id DESC
+    LIMIT 200
+    ''', params).fetchall()
+    
+    conn.close()
+    return jsonify({
+        'status': 'success',
+        'kpis': dict(kpi_row) if kpi_row else {},
+        'cities': [dict(r) for r in city_rows],
+        'skus': [dict(r) for r in sku_rows],
+        'filter_options': {
+            'cities': all_cities,
+            'dates': all_dates
+        },
+        'records': [dict(r) for r in records]
+    })
+
+@app.route('/api/instamart/upload-sales', methods=['POST'])
+def upload_instamart_sales():
+    user_email, user_name = get_user_info()
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+        
+    f = request.files['file']
+    filename = (f.filename or 'Instamart_Sales.csv')
+    content = f.read()
+    
+    conn = get_db()
+    cur = conn.cursor()
+    res = parse_instamart_sales_data(content, filename, f"{user_name} ({user_email})", cur)
+    if res.get('status') == 'error':
+        conn.close()
+        return jsonify(res), 400
+        
+    conn.commit()
+    record_audit(conn, 'UPLOAD_INSTAMART_SALES', 'Instamart Sales', filename, f"Ingested/updated {res['upserted_records']} Instamart sales records ({res['total_units_sold']} units, ₹{res['total_gmv']:,.2f} GMV) for dates: {res['date_range']} by {user_name}")
+    conn.close()
+    return jsonify(res)
+
+@app.route('/api/instamart/sales-summary', methods=['GET'])
+def get_instamart_sales_summary():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    kpi_row = cur.execute('''
+    SELECT 
+        COUNT(*) as total_rows,
+        COALESCE(SUM(units_sold), 0) as total_units,
+        COALESCE(SUM(gmv), 0.0) as total_gmv,
+        COUNT(DISTINCT matched_sku) as total_products,
+        MIN(sale_date) as min_date,
+        MAX(sale_date) as max_date
+    FROM instamart_sales_orders
+    ''').fetchone()
+    
+    kpis = dict(kpi_row) if kpi_row else {}
+    
+    # Clean product sales ledger
+    prod_rows = cur.execute('''
+    SELECT 
+        id,
+        sale_date,
+        matched_sku,
+        COALESCE(matched_product_name, product_name) as product_name,
+        variant,
+        brand_name,
+        city,
+        area_name,
+        units_sold,
+        mrp,
+        gmv,
+        source_file,
+        created_at
+    FROM instamart_sales_orders
+    ORDER BY sale_date DESC, gmv DESC
+    LIMIT 250
+    ''').fetchall()
+    
+    conn.close()
+    return jsonify({
+        'status': 'success',
+        'kpis': kpis,
+        'records': [dict(r) for r in prod_rows]
+    })
+
+@app.route('/api/blinkit/sales-tab-summary', methods=['GET'])
+def get_blinkit_sales_tab_summary():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    kpi_row = cur.execute('''
+    SELECT 
+        COUNT(*) as total_orders,
+        COALESCE(SUM(quantity), 0) as total_units,
+        COALESCE(SUM(total_gross_amount), 0.0) as total_revenue,
+        COUNT(DISTINCT supply_city) as unique_supply_cities,
+        COUNT(DISTINCT customer_city) as unique_customer_cities,
+        COUNT(DISTINCT item_id) as unique_items,
+        MIN(order_date) as min_date,
+        MAX(order_date) as max_date
+    FROM blinkit_sales_orders
+    ''').fetchone()
+    
+    city_rows = cur.execute('''
+    SELECT 
+        supply_city as city,
+        COUNT(*) as order_count,
+        SUM(quantity) as units,
+        SUM(total_gross_amount) as revenue
+    FROM blinkit_sales_orders
+    GROUP BY supply_city
+    ORDER BY revenue DESC
+    LIMIT 20
+    ''').fetchall()
+    
+    product_rows = cur.execute('''
+    SELECT 
+        product_name,
+        brand_name,
+        COUNT(*) as order_count,
+        SUM(quantity) as units,
+        SUM(total_gross_amount) as revenue
+    FROM blinkit_sales_orders
+    GROUP BY product_name, brand_name
+    ORDER BY units DESC
+    ''').fetchall()
+    
+    recent_rows = cur.execute('''
+    SELECT 
+        order_id, order_date, product_name, brand_name, supply_city, customer_city,
+        quantity, mrp, selling_price, total_gross_amount, order_status
+    FROM blinkit_sales_orders
+    ORDER BY order_date DESC, created_at DESC
+    LIMIT 200
+    ''').fetchall()
+    
+    conn.close()
+    return jsonify({
+        'status': 'success',
+        'kpis': dict(kpi_row) if kpi_row else {},
+        'cities': [dict(r) for r in city_rows],
+        'products': [dict(r) for r in product_rows],
+        'recent_orders': [dict(r) for r in recent_rows]
+    })
+
+@app.route('/api/sales/hub-summary', methods=['GET'])
+def get_sales_hub_summary():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    blk = cur.execute('''
+    SELECT COUNT(*) as orders, COALESCE(SUM(quantity), 0) as units, COALESCE(SUM(total_gross_amount), 0.0) as rev, MIN(order_date) as min_d, MAX(order_date) as max_d
+    FROM blinkit_sales_orders
+    ''').fetchone()
+    
+    zpt = cur.execute('''
+    SELECT COUNT(*) as records, COALESCE(SUM(units_sold), 0) as units, COALESCE(SUM(gmv), 0.0) as rev, COUNT(DISTINCT city) as cities, MIN(sale_date) as min_d, MAX(sale_date) as max_d
+    FROM zepto_sales_orders
+    ''').fetchone()
+    
+    ins = cur.execute('''
+    SELECT COUNT(*) as records, COALESCE(SUM(units_sold), 0) as units, COALESCE(SUM(gmv), 0.0) as rev, MIN(sale_date) as min_d, MAX(sale_date) as max_d
+    FROM instamart_sales_orders
+    ''').fetchone()
+    
+    cen = cur.execute('''
+    SELECT COUNT(*) as rows, COALESCE(SUM(units_sold), 0) as units, COALESCE(SUM(revenue), 0.0) as rev
+    FROM sales_data
+    ''').fetchone()
+    
+    conn.close()
+    return jsonify({
+        'status': 'success',
+        'blinkit': dict(blk) if blk else {},
+        'zepto': dict(zpt) if zpt else {},
+        'instamart': dict(ins) if ins else {},
+        'consolidated': dict(cen) if cen else {}
+    })
+
+@app.route('/api/blinkit/replenishment-model', methods=['GET'])
+def get_blinkit_replenishment_model():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Load settings
+    settings_rows = cur.execute('SELECT * FROM blinkit_facility_settings').fetchall()
+    facility_settings = {r['facility_name']: dict(r) for r in settings_rows}
+    
+    # Check filter queries
+    filter_facility = request.args.get('facility', 'All').strip()
+    filter_status = request.args.get('status', 'All').strip()
+    filter_brand = request.args.get('brand', 'All').strip()
+    
+    query = 'SELECT * FROM blinkit_inventory_current'
+    params = []
+    clauses = []
+    if filter_facility != 'All':
+        clauses.append('facility_name = ?')
+        params.append(filter_facility)
+    if filter_brand != 'All':
+        clauses.append('brand_name = ?')
+        params.append(filter_brand)
+    if clauses:
+        query += ' WHERE ' + ' AND '.join(clauses)
+    query += ' ORDER BY facility_name, item_name'
+    
+    inv_rows = cur.execute(query, tuple(params)).fetchall()
+    
+    # Global KPIs
+    total_sellable_all = 0
+    total_incoming_all = 0
+    total_7d_sales_all = 0
+    critical_count = 0
+    reorder_due_count = 0
+    healthy_count = 0
+    overstocked_count = 0
+    excess_capital_at_risk = 0.0
+    
+    model_rows = []
+    
+    for r in inv_rows:
+        d = dict(r)
+        fac_name = d['facility_name']
+        fac_conf = facility_settings.get(fac_name, {
+            'lead_time_days': 8,
+            'safety_stock_days': 3,
+            'target_max_days': 21
+        })
+        
+        lead_time = int(fac_conf.get('lead_time_days', 8))
+        safety_stock = int(fac_conf.get('safety_stock_days', 3))
+        target_max_days = int(fac_conf.get('target_max_days', 21))
+        
+        stk = d['total_sellable'] or 0
+        incom = d['incoming_scheduled'] or 0
+        s7 = d['sales_7d'] or 0
+        s30 = d['sales_30d'] or 0
+        
+        total_sellable_all += stk
+        total_incoming_all += incom
+        total_7d_sales_all += s7
+        
+        drr7 = s7 / 7.0
+        drr30 = s30 / 30.0
+        drr = round((0.7 * drr7 + 0.3 * drr30) if drr7 > 0 else drr30, 2)
+        
+        rop_units = round(drr * (lead_time + safety_stock), 1)
+        target_max_units = round(drr * target_max_days, 1)
+        eff_stk = stk + incom
+        
+        if drr > 0:
+            current_doi = round(stk / drr, 1)
+            pipeline_doi = round(eff_stk / drr, 1)
+        else:
+            current_doi = 999.0 if stk > 0 else 0.0
+            pipeline_doi = 999.0 if eff_stk > 0 else 0.0
+            
+        if drr == 0:
+            if stk == 0 and incom == 0:
+                status = 'INACTIVE'
+                status_label = 'No Sales / Inactive'
+                rec_po = 0
+            else:
+                status = 'OVERSTOCKED'
+                status_label = 'Dead Stock / High Storage Risk'
+                rec_po = 0
+                overstocked_count += 1
+                excess_capital_at_risk += stk * 120.0
+        elif pipeline_doi < lead_time:
+            status = 'CRITICAL'
+            status_label = f'🚨 Urgent Reorder (< {lead_time}d Delivery Window)'
+            rec_po = int(max(0, math.ceil(target_max_units - eff_stk)))
+            critical_count += 1
+        elif pipeline_doi <= (lead_time + safety_stock):
+            status = 'REORDER_DUE'
+            status_label = f'⚠️ Reorder Due (At ROP {rop_units:.0f}u)'
+            rec_po = int(max(0, math.ceil(target_max_units - eff_stk)))
+            reorder_due_count += 1
+        elif pipeline_doi <= target_max_days:
+            status = 'HEALTHY'
+            status_label = '🟢 Healthy Stock (Optimal)'
+            rec_po = 0
+            healthy_count += 1
+        else:
+            status = 'OVERSTOCKED'
+            status_label = '🟣 Excess Stock (Storage Fee Risk)'
+            rec_po = 0
+            overstocked_count += 1
+            excess_units = max(0, stk - target_max_units)
+            excess_capital_at_risk += excess_units * 120.0
+            
+        d['drr'] = drr
+        d['current_doi'] = current_doi
+        d['pipeline_doi'] = pipeline_doi
+        d['rop_units'] = rop_units
+        d['target_max_units'] = target_max_units
+        d['lead_time_days'] = lead_time
+        d['safety_stock_days'] = safety_stock
+        d['target_max_days'] = target_max_days
+        d['status'] = status
+        d['status_label'] = status_label
+        d['recommended_po_qty'] = rec_po
+        
+        if filter_status == 'All' or filter_status == status:
+            model_rows.append(d)
+            
+    all_facilities = [r[0] for r in cur.execute('SELECT DISTINCT facility_name FROM blinkit_inventory_current ORDER BY facility_name').fetchall()]
+    all_brands = [r[0] for r in cur.execute('SELECT DISTINCT brand_name FROM blinkit_inventory_current ORDER BY brand_name').fetchall()]
+    last_inv = cur.execute('SELECT MAX(updated_at) FROM blinkit_inventory_current').fetchone()
+    last_inv_time = last_inv[0] if last_inv else None
+    total_sales_records = cur.execute('SELECT COUNT(*), MIN(order_date), MAX(order_date) FROM blinkit_sales_orders').fetchone()
+    
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'kpis': {
+            'total_facilities': len(all_facilities),
+            'total_items_monitored': len(inv_rows),
+            'total_sellable_network': total_sellable_all,
+            'total_incoming_scheduled': total_incoming_all,
+            'total_weekly_sales': total_7d_sales_all,
+            'critical_count': critical_count,
+            'reorder_due_count': reorder_due_count,
+            'healthy_count': healthy_count,
+            'overstocked_count': overstocked_count,
+            'excess_capital_at_risk': round(excess_capital_at_risk, 2),
+            'last_inventory_sync': last_inv_time,
+            'total_sales_orders': total_sales_records[0] or 0,
+            'sales_date_range': f"{total_sales_records[1]} to {total_sales_records[2]}" if total_sales_records[1] else 'None'
+        },
+        'filters': {
+            'facilities': all_facilities,
+            'brands': all_brands
+        },
+        'rows': model_rows
+    })
+
+@app.route('/api/blinkit/settings', methods=['GET', 'POST'])
+def manage_blinkit_settings():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    if request.method == 'POST':
+        user_email, user_name = get_user_info()
+        profile = get_user_profile(user_email)
+        if not (profile['is_admin'] or profile.get('can_create_po')):
+            conn.close()
+            return jsonify({'error': 'Unauthorized to change Blinkit settings'}), 403
+            
+        data = request.json or {}
+        fac_name = str(data.get('facility_name', '')).strip()
+        lead_time = int(data.get('lead_time_days', 8))
+        safety_stock = int(data.get('safety_stock_days', 3))
+        target_max = int(data.get('target_max_days', 21))
+        
+        if fac_name == 'ALL' or not fac_name:
+            cur.execute('UPDATE blinkit_facility_settings SET lead_time_days = ?, safety_stock_days = ?, target_max_days = ?, updated_at = CURRENT_TIMESTAMP', (lead_time, safety_stock, target_max))
+        else:
+            cur.execute('''
+            UPDATE blinkit_facility_settings 
+            SET lead_time_days = ?, safety_stock_days = ?, target_max_days = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE facility_name = ?
+            ''', (lead_time, safety_stock, target_max, fac_name))
+            
+        conn.commit()
+        record_audit(conn, 'UPDATE_BLINKIT_SETTINGS', 'Blinkit Settings', fac_name or 'ALL', f"Set lead time: {lead_time}d, safety stock: {safety_stock}d, target max: {target_max}d by {user_name}")
+        
+    rows = cur.execute('SELECT * FROM blinkit_facility_settings ORDER BY facility_name').fetchall()
+    settings_list = [dict(r) for r in rows]
+    conn.close()
+    return jsonify({'status': 'success', 'settings': settings_list})
 
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 8765))
