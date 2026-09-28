@@ -6,7 +6,7 @@ import random
 import re
 from io import BytesIO, TextIOWrapper
 from functools import wraps
-from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, session, redirect, url_for, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -507,8 +507,196 @@ def init_schema():
     cur.execute('CREATE INDEX IF NOT EXISTS idx_instamart_item ON instamart_sales_orders(item_code)')
     cur.execute('CREATE INDEX IF NOT EXISTS idx_instamart_city ON instamart_sales_orders(city)')
 
+    # 14. BigBasket Dedicated Sales Offtake Table (Anti-Overlap Idempotent Upsert)
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS bigbasket_sales_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_date TEXT NOT NULL,
+        source_sku_id TEXT NOT NULL,
+        sku_description TEXT NOT NULL,
+        sku_weight TEXT DEFAULT '',
+        brand_slug TEXT DEFAULT '',
+        city TEXT NOT NULL,
+        business_type TEXT DEFAULT 'b2c',
+        top_slug TEXT DEFAULT '',
+        mid_slug TEXT DEFAULT '',
+        leaf_slug TEXT DEFAULT '',
+        units_sold INTEGER DEFAULT 0,
+        mrp REAL DEFAULT 0.0,
+        sales_amount REAL DEFAULT 0.0,
+        matched_sku TEXT,
+        matched_product_name TEXT,
+        source_file TEXT,
+        uploaded_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(sale_date, source_sku_id, city, business_type)
+    )
+    ''')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_bb_date ON bigbasket_sales_orders(sale_date)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_bb_city ON bigbasket_sales_orders(city)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_bb_sku ON bigbasket_sales_orders(source_sku_id)')
+
     conn.commit()
     conn.close()
+
+# ==============================================================================
+# CANONICAL PRODUCT RESOLUTION & HARMONIZATION ENGINE
+# ==============================================================================
+
+def normalize_date_str(d_str):
+    """Normalizes any date string (YYYYMMDD, DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, or ranges) into standard ISO YYYY-MM-DD."""
+    if not d_str:
+        return ''
+    d_str = str(d_str).strip().strip('"').strip("'")
+    if ' - ' in d_str:
+        d_str = d_str.split(' - ')[0].strip()
+    elif ' to ' in d_str.lower():
+        d_str = re.split(r'\s+to\s+', d_str, flags=re.IGNORECASE)[0].strip()
+        
+    compact_match = re.match(r'^(\d{4})(\d{2})(\d{2})$', d_str)
+    if compact_match:
+        return f"{compact_match.group(1)}-{compact_match.group(2)}-{compact_match.group(3)}"
+
+    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d', '%Y/%m/%d', '%d-%b-%Y', '%d %b %Y', '%Y%m%d'):
+        try:
+            return datetime.datetime.strptime(d_str, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    return d_str
+
+ZEPTO_EAN_MAP = {
+    '8908028836101': ('CS0007', 'California Skin+ Triple Action Acne Scar Clear', 'California Skin+'),
+    '8908028836040': ('CS0005', 'California Skin+ One Hour Acne Spot Relief', 'California Skin+'),
+    '8908028836194': ('NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies'),
+    '8908028836156': ('NL003', 'NutraBites Baked Bhujia', 'NutraBites'),
+    '8908028836125': ('CS0006', 'California Skin+ No-Cast, Hyaluronic Glow Sunscreen SPF50++++', 'California Skin+'),
+    '8908028836095': ('CS0003', 'California Skin+ Triple Action Acne Relief Pimple Patches', 'California Skin+'),
+    '8908028836026': ('CS0002', 'California Skin+ Acne Control Serum', 'California Skin+'),
+    '8908028836002': ('CS0001', 'California Skin+ Acne Control Face Wash Cleanser', 'California Skin+'),
+}
+
+PRODUCT_SYNONYM_RULES = [
+    # (SKU, Canonical Name, Brand, Category, [Synonym Patterns / Keywords])
+    ('CS0004', 'Moisturizer', 'California Skin+', 'Skincare', [
+        'moisturiz', 'moisturis', 'moistuir', 'barrier repair', 'ceramide', 'repair cream', 'hydrating gel', 'moisturising'
+    ]),
+    ('CS0006', 'Sunscreen', 'California Skin+', 'Skincare', [
+        'sunscreen', 'sun screen', 'sunblock', 'sun block', 'spf50', 'spf 50', 'no-cast', 'cica sunscreen', 'glow sunscreen'
+    ]),
+    ('CS0001', 'Cleanser', 'California Skin+', 'Skincare', [
+        'cleanser', 'face wash', 'facewash', 'cleansing gel', 'acne wash', 'cica cleanser', 'face cleanser'
+    ]),
+    ('CS0003', 'Patches', 'California Skin+', 'Skincare', [
+        'patch', 'patches', 'pimple patch', 'pimple patches', 'acne patch', 'acne patches', 'hydrocolloid', 'spot patch'
+    ]),
+    ('CS0005', 'Spot Relief', 'California Skin+', 'Skincare', [
+        'spot relief', 'spot treatment', 'acne spot', 'one hour acne', '1 hour acne', 'spot corrector'
+    ]),
+    ('CS0007', 'Scar Cream', 'California Skin+', 'Skincare', [
+        'scar cream', 'scar clear', 'acne scar', 'scar gel', 'scar repair', 'scar'
+    ]),
+    ('CS0002', 'Serum', 'California Skin+', 'Skincare', [
+        'serum', 'acne control face serum', 'face serum', 'acne serum', 'niacinamide serum'
+    ]),
+    ('NL001', 'NutraChips Rock Salt Banana Chips', 'NutraChips', 'Chips', [
+        'banana chip', 'banana chips', 'rock salt banana', 'banana'
+    ]),
+    ('NL002', 'NutraChips Baked Ragi Chips', 'NutraChips', 'Chips', [
+        'ragi chip', 'ragi chips', 'baked ragi', 'ragi'
+    ]),
+    ('NL003', 'NutraBites Baked Bhujia', 'NutraBites', 'Bites', [
+        'bhujia', 'baked bhujia', 'nutrabites', 'protein bhujia'
+    ]),
+    ('NL008', 'NutraCookies Sugar Free Chocolate Cookies', 'NutraCookies', 'Cookies', [
+        'chocolate cookie', 'chocolate cookies', 'choco cookie', 'choco cookies', 'chocolate'
+    ]),
+    ('NL009', 'NutraCookies Sugar Free Protein Cookies', 'NutraCookies', 'Cookies', [
+        'protein cookie', 'protein cookies'
+    ]),
+    ('NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies', 'Cookies', [
+        'oats cookie', 'oats cookies', 'oat cookie', 'oat cookies', 'oats', 'oat', 'cookie', 'cookies'
+    ]),
+    ('NL005', 'Hair & Skin Supplements Gummies', 'NutraGummies', 'Gummies', [
+        'hair skin', 'hair & skin', 'hair and skin', 'hair gummy', 'hair gummies', 'hair'
+    ]),
+    ('NL006', 'Sleep Supplements Gummies', 'NutraGummies', 'Gummies', [
+        'sleep gummy', 'sleep gummies', 'deep sleep', 'melatonin', 'sleep supplement', 'sleep'
+    ]),
+    ('NL007', 'Handwash', 'Derma+', 'Personal Care', [
+        'handwash', 'hand wash', 'hand soap', 'aqua fresh hand wash', 'aquafresh'
+    ]),
+    ('NUNOO2024', 'NUTRANOODLES ATTA NOODLES', 'NutraNoodles', 'FMCG', [
+        'noodle', 'noodles', 'nutranoodles', 'atta noodle'
+    ]),
+    ('B1-001', 'Body Wash 250ml', 'Brand A', 'General', [
+        'body wash', 'bodywash'
+    ]),
+    ('SKU-001', 'Herbal Face Wash', 'Brand A', 'General', [
+        'herbal face wash', 'herbal wash'
+    ])
+]
+
+def resolve_canonical_product(sku_raw, name_raw, ean=None, cur=None):
+    """
+    Comprehensive Canonical Product Resolver.
+    Intelligently maps platform variations, supplier PO lines, and diverse spelling
+    (e.g., 'Moistuirseer', 'Barrier Repair Moisturizer', 'CICA Sunscreen SPF50')
+    to the single canonical master catalog product and SKU.
+    """
+    # 1. EAN barcode lookup
+    if ean:
+        clean_ean = str(ean).strip()
+        if clean_ean in ZEPTO_EAN_MAP:
+            s, n, b = ZEPTO_EAN_MAP[clean_ean]
+            return s, n, b, 'Skincare'
+
+    # 2. Direct SKU lookup
+    clean_sku = str(sku_raw or '').strip().upper()
+    if cur and clean_sku:
+        try:
+            prod = cur.execute('SELECT sku, name, brand, category FROM products WHERE UPPER(sku) = ?', (clean_sku,)).fetchone()
+            if prod:
+                return prod['sku'], prod['name'], prod['brand'], prod['category']
+        except Exception:
+            pass
+
+    # 3. Direct product name lookup against database
+    clean_name = str(name_raw or '').strip()
+    if cur and clean_name:
+        try:
+            prod = cur.execute('SELECT sku, name, brand, category FROM products WHERE LOWER(name) = LOWER(?)', (clean_name,)).fetchone()
+            if prod:
+                return prod['sku'], prod['name'], prod['brand'], prod['category']
+        except Exception:
+            pass
+
+    # 4. Synonym & Keyword Rules Engine (handles typos, varied phrasing across platforms)
+    raw_text = (str(name_raw or '') + ' ' + str(sku_raw or '')).lower()
+    norm = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
+    norm = re.sub(r'\s+', ' ', norm).strip()
+
+    for c_sku, c_name, c_brand, c_cat, patterns in PRODUCT_SYNONYM_RULES:
+        for pat in patterns:
+            if pat in norm:
+                return c_sku, c_name, c_brand, c_cat
+
+    # 5. Fallback substring matching on DB product names
+    if cur and norm:
+        try:
+            db_prods = cur.execute('SELECT sku, name, brand, category FROM products').fetchall()
+            for p in db_prods:
+                p_norm = re.sub(r'[^a-z0-9\s]', ' ', p['name'].lower()).strip()
+                if p_norm and (p_norm in norm or norm in p_norm):
+                    return p['sku'], p['name'], p['brand'], p['category']
+        except Exception:
+            pass
+
+    return clean_sku or 'UNKNOWN', name_raw or 'Unmapped Product', 'Other', 'General'
+
+def map_product_to_internal(sku_raw, name_raw, ean=None, cur=None):
+    """Backwards-compatible wrapper returning (sku, name, brand)."""
+    s, n, b, _ = resolve_canonical_product(sku_raw, name_raw, ean, cur)
+    return s, n, b
 
 def sync_all_pos_to_dispatches(cur):
     """Ensures every PO line item has a corresponding linked entry in dispatch_online or dispatch_gt_mt."""
@@ -519,7 +707,8 @@ def sync_all_pos_to_dispatches(cur):
         cur.execute('SELECT * FROM po_items WHERE po_id = ?', (po_id,))
         items = cur.fetchall()
         for it in items:
-            sku = it['sku']
+            c_sku, c_name, c_brand, c_cat = resolve_canonical_product(it['sku'], it['product_name'], None, cur)
+            sku = c_sku
             po_num = po['po_number']
             is_gtmt = (po['platform_or_channel'] in ['GT', 'MT']) or (po['channel_type'] == 'gtmt')
             if is_gtmt:
@@ -539,7 +728,7 @@ def sync_all_pos_to_dispatches(cur):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, '', '', 0.0, ?, '', '', ?, ?, '', '', ?, ?)
                     ''', (
                         po['po_date'] or datetime.date.today().strftime('%Y-%m-%d'),
-                        it['brand'], it['product_name'], sku, it['category'], channel, buyer, po['location'],
+                        c_brand, c_name, sku, c_cat, channel, buyer, po['location'],
                         po_num, ord_qty, disp_qty, po['appointment_date'],
                         st, po['po_doc_url'], po['po_doc_name'], po['po_date'], it['total_value']
                     ))
@@ -559,12 +748,111 @@ def sync_all_pos_to_dispatches(cur):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 0.0, ?, '', '', ?, ?, '', '', ?, ?)
                     ''', (
                         po['po_date'] or datetime.date.today().strftime('%Y-%m-%d'),
-                        it['brand'], it['product_name'], sku, it['category'], platform, po['location'],
+                        c_brand, c_name, sku, c_cat, platform, po['location'],
                         po_num, ord_qty, disp_qty, po['appointment_date'],
                         st, po['po_doc_url'], po['po_doc_name'], po['po_date'], it['total_value']
                     ))
 
+def resync_all_sales_and_pos_to_canonical(cur):
+    """
+    Harmonizes existing historical rows across po_items, dispatches, and sales_data
+    so that varied supplier names and platform product keys (e.g., 'Moistuirseer',
+    'California Skin+ Moisturizing Gel (with Ceramides)', 'Derma+ Aqua Fresh Hand Wash',
+    '33049910', 'BLK-...') resolve cleanly to the master canonical product catalog.
+    """
+    try:
+        # 1. Update po_items
+        cur.execute("SELECT id, sku, product_name, brand, category FROM po_items")
+        for it in cur.fetchall():
+            c_sku, c_name, c_brand, c_cat = resolve_canonical_product(it['sku'], it['product_name'], None, cur)
+            if (c_sku != 'UNKNOWN' and c_sku != it['sku']) or (c_name != 'Unmapped Product' and c_name != it['product_name']):
+                cur.execute("""
+                    UPDATE po_items
+                    SET sku = ?, product_name = ?, brand = ?, category = ?
+                    WHERE id = ?
+                """, (c_sku, c_name, c_brand, c_cat, it['id']))
+
+        # 2. Update dispatch_online
+        cur.execute("SELECT id, sku, product_name, brand, category FROM dispatch_online")
+        for it in cur.fetchall():
+            c_sku, c_name, c_brand, c_cat = resolve_canonical_product(it['sku'], it['product_name'], None, cur)
+            if (c_sku != 'UNKNOWN' and c_sku != it['sku']) or (c_name != 'Unmapped Product' and c_name != it['product_name']):
+                cur.execute("""
+                    UPDATE dispatch_online
+                    SET sku = ?, product_name = ?, brand = ?, category = ?
+                    WHERE id = ?
+                """, (c_sku, c_name, c_brand, c_cat, it['id']))
+
+        # 3. Update dispatch_gt_mt
+        cur.execute("SELECT id, sku, product_name, brand, category FROM dispatch_gt_mt")
+        for it in cur.fetchall():
+            c_sku, c_name, c_brand, c_cat = resolve_canonical_product(it['sku'], it['product_name'], None, cur)
+            if (c_sku != 'UNKNOWN' and c_sku != it['sku']) or (c_name != 'Unmapped Product' and c_name != it['product_name']):
+                cur.execute("""
+                    UPDATE dispatch_gt_mt
+                    SET sku = ?, product_name = ?, brand = ?, category = ?
+                    WHERE id = ?
+                """, (c_sku, c_name, c_brand, c_cat, it['id']))
+
+        # 4. Update sales_data (fix raw HSN/vendor codes like 33049910, 34013019, 21069099, BLK-..., etc.)
+        cur.execute("SELECT DISTINCT sku, product_name FROM sales_data")
+        distinct_sales_items = cur.fetchall()
+        for row in distinct_sales_items:
+            s_sku = row['sku']
+            s_name = row['product_name']
+            c_sku, c_name, c_brand, _ = resolve_canonical_product(s_sku, s_name, None, cur)
+            if (c_sku != 'UNKNOWN' and c_sku != s_sku) or (c_name != 'Unmapped Product' and s_name and c_name != s_name):
+                cur.execute("""
+                    UPDATE sales_data
+                    SET sku = ?, product_name = ?, brand = ?
+                    WHERE sku = ? AND product_name = ?
+                """, (c_sku, c_name, c_brand, s_sku, s_name))
+
+        # 5. Update zepto_sales_orders & instamart_sales_orders matched columns
+        cur.execute("SELECT DISTINCT sku_number, sku_name, ean, matched_sku FROM zepto_sales_orders")
+        for row in cur.fetchall():
+            c_sku, c_name, c_brand, _ = resolve_canonical_product(row['sku_number'], row['sku_name'], row['ean'], cur)
+            if c_sku != 'UNKNOWN' and c_sku != row['matched_sku']:
+                cur.execute("""
+                    UPDATE zepto_sales_orders
+                    SET matched_sku = ?, matched_product_name = ?
+                    WHERE sku_number = ? AND (ean = ? OR (ean IS NULL AND ? IS NULL))
+                """, (c_sku, c_name, row['sku_number'], row['ean'], row['ean']))
+
+        cur.execute("SELECT DISTINCT item_code, product_name, matched_sku FROM instamart_sales_orders")
+        for row in cur.fetchall():
+            c_sku, c_name, c_brand, _ = resolve_canonical_product(row['item_code'], row['product_name'], None, cur)
+            if c_sku != 'UNKNOWN' and c_sku != row['matched_sku']:
+                cur.execute("""
+                    UPDATE instamart_sales_orders
+                    SET matched_sku = ?, matched_product_name = ?
+                    WHERE item_code = ? AND product_name = ?
+                """, (c_sku, c_name, row['item_code'], row['product_name']))
+
+        # 6. Update bigbasket_sales_orders matched columns
+        cur.execute("SELECT DISTINCT source_sku_id, sku_description, matched_sku FROM bigbasket_sales_orders")
+        for row in cur.fetchall():
+            c_sku, c_name, c_brand, _ = resolve_canonical_product(row['source_sku_id'], row['sku_description'], None, cur)
+            if c_sku != 'UNKNOWN' and c_sku != row['matched_sku']:
+                cur.execute("""
+                    UPDATE bigbasket_sales_orders
+                    SET matched_sku = ?, matched_product_name = ?
+                    WHERE source_sku_id = ? AND sku_description = ?
+                """, (c_sku, c_name, row['source_sku_id'], row['sku_description']))
+    except Exception as e:
+        print("Notice during canonical resync:", e)
+
 init_schema()
+
+# Harmonize existing database entries on launch
+try:
+    _conn = get_db()
+    _cur = _conn.cursor()
+    resync_all_sales_and_pos_to_canonical(_cur)
+    _conn.commit()
+    _conn.close()
+except Exception as _e:
+    print("Initial canonical resync notice:", _e)
 
 def get_user_info():
     # Real session authentication: Read exclusively from encrypted server-side session cookie
@@ -2263,6 +2551,15 @@ def create_purchase_order():
         p_name = str(it.get('product_name', '')).strip()
         brand = str(it.get('brand', '')).strip()
         category = str(it.get('category', 'General')).strip()
+        
+        # Canonical product resolution: combines varied names (e.g. 'Moistuirseer', 'CICA Sunscreen') to master catalog
+        c_sku, c_name, c_brand, c_cat = resolve_canonical_product(sku, p_name, None, cur)
+        if c_sku != 'UNKNOWN':
+            sku = c_sku
+            p_name = c_name
+            brand = c_brand
+            category = c_cat
+
         qty = int(it.get('ordered_quantity') or it.get('quantity') or 1)
         tot_val = float(it.get('total_value') or 0.0)
         unit_price = float(it.get('unit_price') or (round(tot_val / qty, 2) if (qty and tot_val) else 0.0))
@@ -2358,14 +2655,20 @@ def update_purchase_order(po_id):
         total_quantity = sum(int(it.get('ordered_quantity', 1)) for it in items)
         total_po_value = sum(float(it.get('total_value') or (int(it.get('ordered_quantity', 1)) * float(it.get('unit_price', 0.0)))) for it in items)
         for it in items:
+            c_sku, c_name, c_brand, c_cat = resolve_canonical_product(it.get('sku'), it.get('product_name'), None, cur)
+            i_sku = c_sku if c_sku != 'UNKNOWN' else str(it.get('sku', '')).strip().upper()
+            i_name = c_name if c_name != 'Unmapped Product' else it.get('product_name', '')
+            i_brand = c_brand if c_brand != 'Other' else (it.get('brand', '') or '')
+            i_cat = c_cat if c_cat != 'General' else (it.get('category', 'General') or 'General')
+
             cur.execute('''
             INSERT INTO po_items (
                 po_id, po_number, sku, product_name, brand, category,
                 ordered_quantity, unit_price, total_value, dispatched_quantity, notes
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                po_id, po_number, it.get('sku', '').upper(), it.get('product_name', ''),
-                it.get('brand', ''), it.get('category', 'General'), int(it.get('ordered_quantity', 1)),
+                po_id, po_number, i_sku, i_name,
+                i_brand, i_cat, int(it.get('ordered_quantity', 1)),
                 float(it.get('unit_price', 0.0)), round(float(it.get('total_value', 0.0)), 2),
                 int(it.get('dispatched_quantity', 0)), it.get('notes', '')
             ))
@@ -2659,23 +2962,12 @@ def upload_sales_report():
         if clean_units <= 0:
             continue
             
-        # Match against our products
-        matched_prod = None
-        if raw_sku and raw_sku.upper() in sku_lookup:
-            matched_prod = sku_lookup[raw_sku.upper()]
-        elif raw_name and raw_name.lower() in name_lookup:
-            matched_prod = name_lookup[raw_name.lower()]
-        else:
-            # Substring matching fallback
-            for p_name, prod in name_lookup.items():
-                if raw_name and (p_name in raw_name.lower() or raw_name.lower() in p_name):
-                    matched_prod = prod
-                    break
-                    
-        if matched_prod:
-            final_sku = matched_prod['sku']
-            final_name = matched_prod['name']
-            final_brand = matched_prod['brand']
+        # Resolve against our canonical catalog and synonym engine
+        c_sku, c_name, c_brand, _ = resolve_canonical_product(raw_sku, raw_name, None, cur)
+        if c_sku != 'UNKNOWN':
+            final_sku = c_sku
+            final_name = c_name
+            final_brand = c_brand
         else:
             final_sku = raw_sku or 'UNKNOWN'
             final_name = raw_name or 'Unmapped Product'
@@ -2762,6 +3054,312 @@ def delete_sales_record(item_id):
     conn.commit()
     conn.close()
     return jsonify({'status': 'success'})
+
+@app.route('/api/sales/dashboard-analytics', methods=['GET'])
+def get_sales_dashboard_analytics():
+    """Returns aggregated metrics, platform breakdown, top products, top locations, and filtered sales records."""
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    platform = request.args.get('platform', '').strip()
+    sku = request.args.get('sku', '').strip()
+    location = request.args.get('location', '').strip()
+    brand = request.args.get('brand', '').strip()
+    search = request.args.get('search', '').strip()
+    try:
+        limit = int(request.args.get('limit', 200))
+    except (ValueError, TypeError):
+        limit = 200
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # 1. Fetch available filter options from current dataset
+    platforms_rows = cur.execute('''
+        SELECT DISTINCT platform FROM sales_data 
+        WHERE platform IS NOT NULL AND platform != '' 
+        ORDER BY platform
+    ''').fetchall()
+    available_platforms = [r['platform'] for r in platforms_rows]
+    
+    products_rows = cur.execute('''
+        SELECT DISTINCT sku, product_name, brand FROM sales_data 
+        WHERE sku IS NOT NULL AND sku != '' 
+        ORDER BY product_name
+    ''').fetchall()
+    available_products = [{'sku': r['sku'], 'name': r['product_name'] or r['sku'], 'brand': r['brand'] or ''} for r in products_rows]
+    
+    locations_rows = cur.execute('''
+        SELECT DISTINCT store_location FROM sales_data 
+        WHERE store_location IS NOT NULL AND store_location != '' 
+        ORDER BY store_location
+    ''').fetchall()
+    available_locations = [r['store_location'] for r in locations_rows]
+    
+    date_bounds = cur.execute('''
+        SELECT MIN(sale_date) as min_date, MAX(sale_date) as max_date 
+        FROM sales_data WHERE sale_date IS NOT NULL AND sale_date != ''
+    ''').fetchone()
+    
+    # 2. Build filtered WHERE clause
+    where_clauses = ["1=1"]
+    params = []
+    
+    if start_date:
+        where_clauses.append("sale_date >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("sale_date <= ?")
+        params.append(end_date)
+    if platform and platform != 'All':
+        where_clauses.append("platform = ?")
+        params.append(platform)
+    if sku and sku != 'All':
+        where_clauses.append("sku = ?")
+        params.append(sku)
+    if location and location != 'All':
+        where_clauses.append("store_location = ?")
+        params.append(location)
+    if brand and brand != 'All':
+        where_clauses.append("brand = ?")
+        params.append(brand)
+    if search:
+        term = f"%{search}%"
+        where_clauses.append("(sku LIKE ? OR product_name LIKE ? OR store_location LIKE ? OR platform LIKE ?)")
+        params.extend([term, term, term, term])
+        
+    where_sql = " AND ".join(where_clauses)
+    
+    # 3. Overall KPIs
+    kpi_row = cur.execute(f'''
+        SELECT 
+            COUNT(*) as total_records,
+            COALESCE(SUM(units_sold), 0) as total_units,
+            COALESCE(SUM(revenue), 0) as total_revenue,
+            COUNT(DISTINCT platform) as active_platforms,
+            COUNT(DISTINCT store_location) as active_locations,
+            COUNT(DISTINCT sku) as active_products
+        FROM sales_data
+        WHERE {where_sql}
+    ''', params).fetchone()
+    
+    total_units = kpi_row['total_units'] or 0
+    total_revenue = round(kpi_row['total_revenue'] or 0.0, 2)
+    avg_order_val = round(total_revenue / total_units, 2) if total_units > 0 else 0.0
+    
+    kpis = {
+        'total_records': kpi_row['total_records'] or 0,
+        'total_units': total_units,
+        'total_revenue': total_revenue,
+        'avg_unit_value': avg_order_val,
+        'active_platforms': kpi_row['active_platforms'] or 0,
+        'active_locations': kpi_row['active_locations'] or 0,
+        'active_products': kpi_row['active_products'] or 0
+    }
+    
+    # 4. Platform Breakdown
+    plat_rows = cur.execute(f'''
+        SELECT 
+            platform,
+            COALESCE(SUM(units_sold), 0) as units,
+            COALESCE(SUM(revenue), 0) as revenue,
+            COUNT(DISTINCT store_location) as locations_count,
+            COUNT(DISTINCT sku) as products_count
+        FROM sales_data
+        WHERE {where_sql}
+        GROUP BY platform
+        ORDER BY units DESC, revenue DESC
+    ''', params).fetchall()
+    
+    platforms_breakdown = []
+    for r in plat_rows:
+        u = r['units'] or 0
+        rev = round(r['revenue'] or 0.0, 2)
+        share_units = round((u / total_units * 100), 1) if total_units > 0 else 0.0
+        share_rev = round((rev / total_revenue * 100), 1) if total_revenue > 0 else 0.0
+        platforms_breakdown.append({
+            'platform': r['platform'],
+            'units': u,
+            'revenue': rev,
+            'locations_count': r['locations_count'],
+            'products_count': r['products_count'],
+            'unit_share_pct': share_units,
+            'revenue_share_pct': share_rev
+        })
+        
+    # 5. Top Products
+    top_prod_rows = cur.execute(f'''
+        SELECT 
+            sku,
+            COALESCE(product_name, sku) as product_name,
+            COALESCE(brand, '') as brand,
+            COALESCE(SUM(units_sold), 0) as units,
+            COALESCE(SUM(revenue), 0) as revenue
+        FROM sales_data
+        WHERE {where_sql}
+        GROUP BY sku
+        ORDER BY units DESC, revenue DESC
+        LIMIT 10
+    ''', params).fetchall()
+    
+    top_products = [{
+        'sku': r['sku'],
+        'product_name': r['product_name'],
+        'brand': r['brand'],
+        'units': r['units'],
+        'revenue': round(r['revenue'] or 0.0, 2),
+        'share_pct': round((r['units'] / total_units * 100), 1) if total_units > 0 else 0.0
+    } for r in top_prod_rows]
+    
+    # 6. Top Locations
+    top_loc_rows = cur.execute(f'''
+        SELECT 
+            store_location as location,
+            COALESCE(SUM(units_sold), 0) as units,
+            COALESCE(SUM(revenue), 0) as revenue,
+            COUNT(DISTINCT platform) as platforms_count
+        FROM sales_data
+        WHERE {where_sql} AND store_location IS NOT NULL AND store_location != ''
+        GROUP BY store_location
+        ORDER BY units DESC, revenue DESC
+        LIMIT 10
+    ''', params).fetchall()
+    
+    top_locations = [{
+        'location': r['location'],
+        'units': r['units'],
+        'revenue': round(r['revenue'] or 0.0, 2),
+        'platforms_count': r['platforms_count'],
+        'share_pct': round((r['units'] / total_units * 100), 1) if total_units > 0 else 0.0
+    } for r in top_loc_rows]
+    
+    # 7. Timeline (daily trend)
+    timeline_rows = cur.execute(f'''
+        SELECT 
+            sale_date,
+            COALESCE(SUM(units_sold), 0) as units,
+            COALESCE(SUM(revenue), 0) as revenue
+        FROM sales_data
+        WHERE {where_sql} AND sale_date IS NOT NULL AND sale_date != ''
+        GROUP BY sale_date
+        ORDER BY sale_date ASC
+        LIMIT 60
+    ''', params).fetchall()
+    
+    timeline = [{
+        'date': r['sale_date'],
+        'units': r['units'],
+        'revenue': round(r['revenue'] or 0.0, 2)
+    } for r in timeline_rows]
+    
+    # 8. Filtered Sales Records
+    records_params = list(params)
+    records_params.append(limit)
+    record_rows = cur.execute(f'''
+        SELECT 
+            id, sale_date, platform, sku, product_name, brand, 
+            units_sold, revenue, store_location, source_file, created_at
+        FROM sales_data
+        WHERE {where_sql}
+        ORDER BY sale_date DESC, id DESC
+        LIMIT ?
+    ''', records_params).fetchall()
+    
+    records = [dict(r) for r in record_rows]
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'kpis': kpis,
+        'platforms': platforms_breakdown,
+        'top_products': top_products,
+        'top_locations': top_locations,
+        'timeline': timeline,
+        'records': records,
+        'filter_options': {
+            'platforms': available_platforms,
+            'products': available_products,
+            'locations': available_locations,
+            'min_date': date_bounds['min_date'] if date_bounds else '',
+            'max_date': date_bounds['max_date'] if date_bounds else ''
+        }
+    })
+
+@app.route('/api/sales/export-csv', methods=['GET'])
+def export_sales_csv():
+    """Generates and streams a CSV of filtered sales data."""
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    platform = request.args.get('platform', '').strip()
+    sku = request.args.get('sku', '').strip()
+    location = request.args.get('location', '').strip()
+    brand = request.args.get('brand', '').strip()
+    search = request.args.get('search', '').strip()
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    where_clauses = ["1=1"]
+    params = []
+    
+    if start_date:
+        where_clauses.append("sale_date >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("sale_date <= ?")
+        params.append(end_date)
+    if platform and platform != 'All':
+        where_clauses.append("platform = ?")
+        params.append(platform)
+    if sku and sku != 'All':
+        where_clauses.append("sku = ?")
+        params.append(sku)
+    if location and location != 'All':
+        where_clauses.append("store_location = ?")
+        params.append(location)
+    if brand and brand != 'All':
+        where_clauses.append("brand = ?")
+        params.append(brand)
+    if search:
+        term = f"%{search}%"
+        where_clauses.append("(sku LIKE ? OR product_name LIKE ? OR store_location LIKE ? OR platform LIKE ?)")
+        params.extend([term, term, term, term])
+        
+    where_sql = " AND ".join(where_clauses)
+    
+    rows = cur.execute(f'''
+        SELECT sale_date, platform, sku, product_name, brand, store_location, units_sold, revenue, source_file
+        FROM sales_data
+        WHERE {where_sql}
+        ORDER BY sale_date DESC, id DESC
+    ''', params).fetchall()
+    conn.close()
+    
+    import io, csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Sale Date', 'Platform', 'SKU', 'Product Name', 'Brand', 'Location / City', 'Units Sold', 'Revenue (INR)', 'Source File'])
+    
+    for r in rows:
+        rev_val = f"{r['revenue']:.2f}" if r['revenue'] is not None else '0.00'
+        writer.writerow([
+            r['sale_date'] or '',
+            r['platform'] or '',
+            r['sku'] or '',
+            r['product_name'] or '',
+            r['brand'] or '',
+            r['store_location'] or '',
+            r['units_sold'] or 0,
+            rev_val,
+            r['source_file'] or ''
+        ])
+        
+    output.seek(0)
+    today_str = datetime.date.today().strftime('%Y%m%d')
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment;filename=Sales_Dashboard_Export_{today_str}.csv"}
+    )
 
 @app.route('/api/sales/pipeline-summary', methods=['GET'])
 def get_pipeline_summary():
@@ -4094,20 +4692,28 @@ def parse_blinkit_sales_data(file_content, cur):
     min_date = min(dates_seen) if dates_seen else '-'
     max_date = max(dates_seen) if dates_seen else '-'
 
-    # Anti-overlap sync to central sales_data:
+    # Anti-overlap sync to central sales_data with canonical product resolution:
     for d in dates_seen:
         cur.execute('DELETE FROM sales_data WHERE platform = ? AND sale_date = ?', ('Blinkit', d))
-        cur.execute('''
-        INSERT INTO sales_data (
-            sale_date, platform, sku, product_name, brand, units_sold, revenue, store_location, source_file, uploaded_by
-        )
-        SELECT b.order_date, 'Blinkit', 
-               COALESCE((SELECT p.sku FROM products p WHERE LOWER(p.name) LIKE '%' || LOWER(b.product_name) || '%' OR LOWER(b.product_name) LIKE '%' || LOWER(p.name) || '%' LIMIT 1), 'BLK-' || b.item_id),
-               b.product_name, b.brand_name, SUM(b.quantity), SUM(b.total_gross_amount), b.supply_city, 'Blinkit Orders', 'Blinkit System'
-        FROM blinkit_sales_orders b
-        WHERE b.order_date = ?
-        GROUP BY b.order_date, b.item_id, b.supply_city
-        ''', (d,))
+        blk_rows = cur.execute('''
+        SELECT order_date, item_id, product_name, brand_name, upc, supply_city,
+               SUM(quantity) as units, SUM(total_gross_amount) as revenue
+        FROM blinkit_sales_orders
+        WHERE order_date = ?
+        GROUP BY order_date, item_id, supply_city
+        ''', (d,)).fetchall()
+        
+        for r in blk_rows:
+            c_sku, c_name, c_brand, _ = resolve_canonical_product(None, r['product_name'], r['upc'], cur)
+            brand_to_use = c_brand if c_brand != 'Other' else (r['brand_name'] or 'Blinkit')
+            name_to_use = c_name if c_name != 'Unmapped Product' else r['product_name']
+            sku_to_use = c_sku if c_sku != 'UNKNOWN' else f"BLK-{r['item_id']}"
+            
+            cur.execute('''
+            INSERT INTO sales_data (
+                sale_date, platform, sku, product_name, brand, units_sold, revenue, store_location, source_file, uploaded_by
+            ) VALUES (?, 'Blinkit', ?, ?, ?, ?, ?, ?, 'Blinkit Orders', 'Blinkit System')
+            ''', (r['order_date'], sku_to_use, name_to_use, brand_to_use, r['units'], r['revenue'], r['supply_city']))
     
     return {
         'status': 'success',
@@ -4145,69 +4751,8 @@ seed_initial_blinkit_data_if_empty()
 # QUICK-COMMERCE MULTI-PLATFORM PARSERS (ZEPTO & INSTAMART) WITH ANTI-OVERLAP
 # ==============================================================================
 
-def normalize_date_str(d_str):
-    """Normalizes any date string (DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD) into standard ISO YYYY-MM-DD."""
-    if not d_str:
-        return ''
-    d_str = str(d_str).strip().strip('"').strip("'")
-    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d', '%Y/%m/%d', '%d-%b-%Y', '%d %b %Y'):
-        try:
-            return datetime.datetime.strptime(d_str, fmt).strftime('%Y-%m-%d')
-        except ValueError:
-            pass
-    return d_str
+# (Canonical resolver and normalization engine are defined at the top of the file)
 
-ZEPTO_EAN_MAP = {
-    '8908028836101': ('CS0007', 'California Skin+ Triple Action Acne Scar Clear', 'California Skin+'),
-    '8908028836040': ('CS0005', 'California Skin+ One Hour Acne Spot Relief', 'California Skin+'),
-    '8908028836194': ('NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies'),
-    '8908028836156': ('NL003', 'NutraBites Baked Bhujia', 'NutraBites'),
-    '8908028836125': ('CS0006', 'California Skin+ No-Cast, Hyaluronic Glow Sunscreen SPF50++++', 'California Skin+'),
-    '8908028836095': ('CS0003', 'California Skin+ Triple Action Acne Relief Pimple Patches', 'California Skin+'),
-    '8908028836026': ('CS0002', 'California Skin+ Acne Control Serum', 'California Skin+'),
-    '8908028836002': ('CS0001', 'California Skin+ Acne Control Face Wash Cleanser', 'California Skin+'),
-}
-
-INSTAMART_KEYWORD_MAP = [
-    ('banana chips', ('NL001', 'NutraChips Rock Salt Banana Chips', 'NutraChips')),
-    ('ragi chips', ('NL002', 'NutraChips Baked Ragi Chips', 'NutraChips')),
-    ('cookies', ('NL004', 'NutraCookies Sugar Free Oats Cookies', 'NutraCookies')),
-    ('bhujia', ('NL003', 'NutraBites Baked Bhujia', 'NutraBites')),
-    ('patches', ('CS0003', 'California Skin+ Triple Action Acne Relief Pimple Patches', 'California Skin+')),
-    ('spot relief', ('CS0005', 'California Skin+ One Hour Acne Spot Relief', 'California Skin+')),
-    ('scar clear', ('CS0007', 'California Skin+ Triple Action Acne Scar Clear', 'California Skin+')),
-    ('handwash', ('NL007', 'Handwash', 'Derma+')),
-    ('sleep gummies', ('NL006', 'Sleep Supplements Gummies', 'NutraGummies')),
-    ('hair skin gummies', ('NL005', 'Hair & Skin Supplements Gummies', 'NutraGummies')),
-    ('cleanser', ('CS0001', 'California Skin+ Acne Control Face Wash Cleanser', 'California Skin+')),
-    ('serum', ('CS0002', 'California Skin+ Acne Control Serum', 'California Skin+')),
-    ('sunscreen', ('CS0006', 'California Skin+ No-Cast, Hyaluronic Glow Sunscreen SPF50++++', 'California Skin+')),
-    ('moisturizer', ('CS0004', 'Moisturizer', 'California Skin+')),
-]
-
-def map_product_to_internal(sku_raw, name_raw, ean=None, cur=None):
-    """Maps platform identifiers (EAN, campaign name, raw SKU) to internal product catalog."""
-    if ean:
-        clean_ean = str(ean).strip()
-        if clean_ean in ZEPTO_EAN_MAP:
-            return ZEPTO_EAN_MAP[clean_ean]
-            
-    clean_name = str(name_raw or '').strip().lower()
-    for kw, target in INSTAMART_KEYWORD_MAP:
-        if kw in clean_name:
-            return target
-            
-    if cur and clean_name:
-        try:
-            db_prods = cur.execute('SELECT sku, name, brand FROM products').fetchall()
-            for p in db_prods:
-                p_name = p['name'].lower()
-                if p_name in clean_name or clean_name in p_name:
-                    return (p['sku'], p['name'], p['brand'])
-        except Exception:
-            pass
-            
-    return (sku_raw or 'UNKNOWN', name_raw or 'Unmapped Product', 'Other')
 
 def parse_zepto_sales_data(file_content, filename='Zepto_Sales.csv', user_info='Admin', cur=None):
     """
@@ -4534,8 +5079,182 @@ def parse_instamart_sales_data(file_content, filename='Instamart_Sales.csv', use
         'date_range': f"{min(dates_seen)} to {max(dates_seen)}" if dates_seen else '-'
     }
 
+BIGBASKET_INITIAL_SEED_CSV = '''date_range,source_city_name,business_type,brand_slug,top_slug,mid_slug,leaf_slug,source_sku_id,sku_description,sku_weight,Total_quantity,Total_mrp,Total_sales
+20260927 - 20260927,Noida,b2c,nutracookies,snacks-branded-foods,biscuits-cookies,cookies,40371097,Oats Cookies - Sugar Free,100 g,3.0,357.0,296.31
+20260927 - 20260927,Bangalore,b2c,nutracookies,snacks-branded-foods,biscuits-cookies,cookies,40371097,Oats Cookies - Sugar Free,100 g,11.0,1309.0,1086.47
+20260927 - 20260927,Bangalore,b2c,nutrabites,snacks-branded-foods,snacks-namkeen,namkeen-savoury-snacks,40371096,High Protein Baked Bhujia,75 g,1.0,99.0,85.14
+20260927 - 20260927,Bangalore,b2c,california-skin,beauty-hygiene,skin-care,face-care,40370930,Triple Action Acne Relief Pimple Patches,36 pcs,3.0,855.0,444.6
+20260927 - 20260927,Gurgaon,b2c,california-skin,beauty-hygiene,skin-care,face-care,40370930,Triple Action Acne Relief Pimple Patches,36 pcs,5.0,1425.0,741.0
+20260927 - 20260927,Gurgaon,b2c,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371094,Rock Salt Banana Chips,50 g,9.0,441.0,352.8
+20260927 - 20260927,Gurgaon,b2c,nutracookies,snacks-branded-foods,biscuits-cookies,cookies,40371097,Oats Cookies - Sugar Free,100 g,7.0,833.0,691.39
+20260927 - 20260927,Bangalore,bbdaily,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371095,Baked Ragi Chips,50 g,1.0,59.0,48.97
+20260927 - 20260927,Gurgaon,b2c,nutrabites,snacks-branded-foods,snacks-namkeen,namkeen-savoury-snacks,40371096,High Protein Baked Bhujia,75 g,4.0,396.0,340.56
+20260927 - 20260927,Bangalore,b2c,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371094,Rock Salt Banana Chips,50 g,4.0,196.0,156.8
+20260927 - 20260927,Noida,b2c,california-skin,beauty-hygiene,skin-care,face-care,40370930,Triple Action Acne Relief Pimple Patches,36 pcs,3.0,855.0,444.6
+20260927 - 20260927,Noida,b2c,nutrabites,snacks-branded-foods,snacks-namkeen,namkeen-savoury-snacks,40371096,High Protein Baked Bhujia,75 g,1.0,99.0,85.14
+20260927 - 20260927,Mumbai,b2c,nutrabites,snacks-branded-foods,snacks-namkeen,namkeen-savoury-snacks,40371096,High Protein Baked Bhujia,75 g,2.0,198.0,170.28
+20260927 - 20260927,Noida,b2c,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371095,Baked Ragi Chips,50 g,2.0,118.0,97.94
+20260927 - 20260927,Noida,b2c,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371094,Rock Salt Banana Chips,50 g,2.0,98.0,78.4
+20260927 - 20260927,Bangalore,b2c,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371095,Baked Ragi Chips,50 g,6.0,344.0,285.52
+20260927 - 20260927,Gurgaon,b2c,nutrachips,snacks-branded-foods,snacks-namkeen,chips-corn-snacks,40371095,Baked Ragi Chips,50 g,5.0,295.0,244.85'''
+
+def parse_bigbasket_sales_data(file_content, filename='BigBasket_Sales.csv', user_info='Admin', cur=None):
+    """
+    Parses BigBasket Daily Sales CSV/Excel reports.
+    Deduplicates strictly using UNIQUE(sale_date, source_sku_id, city, business_type) with ON CONFLICT DO UPDATE.
+    Guarantees zero overlap when same dates are re-uploaded.
+    """
+    if isinstance(file_content, bytes):
+        if filename.lower().endswith('.xlsx') or filename.lower().endswith('.xls'):
+            wb = openpyxl.load_workbook(BytesIO(file_content), data_only=True)
+            sheet = wb.active
+            lines = []
+            for row in sheet.iter_rows(values_only=True):
+                lines.append(','.join(['' if v is None else str(v).replace(',', ' ') for v in row]))
+            file_content = '\n'.join(lines)
+        else:
+            try:
+                file_content = file_content.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                file_content = file_content.decode('latin1', errors='replace')
+
+    lines = [l.strip() for l in file_content.splitlines() if l.strip()]
+    if not lines:
+        return {'status': 'error', 'message': 'The uploaded file is empty.'}
+
+    # Find header row
+    header_idx = 0
+    for idx, l in enumerate(lines[:10]):
+        low = l.lower()
+        if 'source_sku_id' in low or 'sku_description' in low or 'total_quantity' in low or 'total_sales' in low:
+            header_idx = idx
+            break
+
+    reader = csv.DictReader(lines[header_idx:])
+    total_in_file = 0
+    upserted_count = 0
+    dates_seen = set()
+    total_units = 0
+    total_sales_val = 0.0
+    cities_seen = set()
+
+    def get_val(r_dict, keys, default=''):
+        for k, v in r_dict.items():
+            if k and v is not None:
+                clean_k = k.lower().strip().replace(' ', '_')
+                for target in keys:
+                    if clean_k == target or target in clean_k:
+                        return v
+        return default
+
+    for r in reader:
+        raw_date = str(get_val(r, ['date_range', 'sale_date', 'date'], '')).strip()
+        sku_id = str(get_val(r, ['source_sku_id', 'sku_id', 'sku_number', 'sku'], '')).strip()
+        sku_desc = str(get_val(r, ['sku_description', 'product_name', 'item_name', 'description'], '')).strip()
+
+        if not raw_date or (not sku_id and not sku_desc):
+            continue
+
+        norm_date = normalize_date_str(raw_date)
+        if not norm_date:
+            continue
+
+        dates_seen.add(norm_date)
+        total_in_file += 1
+
+        city = str(get_val(r, ['source_city_name', 'city_name', 'city'], 'Unknown')).strip()
+        cities_seen.add(city)
+        biz_type = str(get_val(r, ['business_type', 'channel', 'type'], 'b2c')).strip().lower()
+        brand_slug = str(get_val(r, ['brand_slug', 'brand'], '')).strip()
+        top_slug = str(get_val(r, ['top_slug', 'category'], '')).strip()
+        mid_slug = str(get_val(r, ['mid_slug', 'subcategory'], '')).strip()
+        leaf_slug = str(get_val(r, ['leaf_slug'], '')).strip()
+        sku_weight = str(get_val(r, ['sku_weight', 'weight', 'pack_size'], '')).strip()
+
+        try:
+            units = int(float(str(get_val(r, ['total_quantity', 'quantity', 'units', 'qty'], 0)).replace(',', '').strip() or 0))
+        except Exception:
+            units = 0
+
+        try:
+            mrp = float(str(get_val(r, ['total_mrp', 'mrp'], 0.0)).replace(',', '').strip() or 0.0)
+        except Exception:
+            mrp = 0.0
+
+        try:
+            sales = float(str(get_val(r, ['total_sales', 'sales', 'revenue', 'gmv'], 0.0)).replace(',', '').strip() or 0.0)
+        except Exception:
+            sales = 0.0
+
+        total_units += units
+        total_sales_val += sales
+
+        matched_sku, matched_name, matched_brand = map_product_to_internal(sku_id, sku_desc, None, cur)
+        if not brand_slug:
+            brand_slug = matched_brand
+
+        cur.execute('''
+        INSERT INTO bigbasket_sales_orders (
+            sale_date, source_sku_id, sku_description, sku_weight, brand_slug,
+            city, business_type, top_slug, mid_slug, leaf_slug,
+            units_sold, mrp, sales_amount, matched_sku, matched_product_name, source_file, uploaded_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sale_date, source_sku_id, city, business_type) DO UPDATE SET
+            units_sold = excluded.units_sold,
+            mrp = excluded.mrp,
+            sales_amount = excluded.sales_amount,
+            sku_description = excluded.sku_description,
+            sku_weight = excluded.sku_weight,
+            brand_slug = excluded.brand_slug,
+            top_slug = excluded.top_slug,
+            mid_slug = excluded.mid_slug,
+            leaf_slug = excluded.leaf_slug,
+            matched_sku = excluded.matched_sku,
+            matched_product_name = excluded.matched_product_name,
+            source_file = excluded.source_file,
+            uploaded_by = excluded.uploaded_by,
+            created_at = CURRENT_TIMESTAMP
+        ''', (
+            norm_date, sku_id, sku_desc, sku_weight, brand_slug,
+            city, biz_type, top_slug, mid_slug, leaf_slug,
+            units, mrp, sales, matched_sku, matched_name, filename, user_info
+        ))
+        upserted_count += 1
+
+    # Idempotent anti-overlap sync to central sales_data:
+    for d in dates_seen:
+        cur.execute('DELETE FROM sales_data WHERE platform = ? AND sale_date = ?', ('BigBasket', d))
+        cur.execute('''
+        INSERT INTO sales_data (
+            sale_date, platform, sku, product_name, brand, units_sold, revenue, store_location, source_file, uploaded_by
+        )
+        SELECT sale_date, 'BigBasket', matched_sku, matched_product_name, 
+               CASE 
+                   WHEN brand_slug = 'california-skin' THEN 'California Skin+'
+                   WHEN brand_slug = 'nutracookies' THEN 'NutraCookies'
+                   WHEN brand_slug = 'nutrabites' THEN 'NutraBites'
+                   WHEN brand_slug = 'nutrachips' THEN 'NutraChips'
+                   ELSE brand_slug END,
+               SUM(units_sold), SUM(sales_amount), city, ?, ?
+        FROM bigbasket_sales_orders
+        WHERE sale_date = ?
+        GROUP BY sale_date, matched_sku, city
+        ''', (filename, user_info, d))
+
+    return {
+        'status': 'success',
+        'platform': 'BigBasket',
+        'total_rows_in_file': total_in_file,
+        'upserted_records': upserted_count,
+        'total_units_sold': total_units,
+        'total_sales_amount': round(total_sales_val, 2),
+        'unique_cities': len(cities_seen),
+        'dates': sorted(list(dates_seen)),
+        'date_range': f"{min(dates_seen)} to {max(dates_seen)}" if dates_seen else '-'
+    }
+
 def seed_initial_quick_commerce_data_if_empty():
-    """Auto-seeds initial Zepto & Instamart sales data from artifacts directory if tables are empty."""
+    """Auto-seeds initial Zepto, Instamart & BigBasket sales data if tables are empty."""
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -4558,6 +5277,12 @@ def seed_initial_quick_commerce_data_if_empty():
                 with open(i_path, 'rb') as f:
                     parse_instamart_sales_data(f.read(), 'Instamart_25-09-2026.csv', 'System Initial Seed', cur)
                 print("Auto-seeded Instamart sales dataset successfully.")
+
+        # BigBasket seed
+        bb_count = cur.execute('SELECT COUNT(*) FROM bigbasket_sales_orders').fetchone()[0]
+        if bb_count == 0:
+            parse_bigbasket_sales_data(BIGBASKET_INITIAL_SEED_CSV, 'BigBasket_Sales_27-09-2026.csv', 'System Initial Seed', cur)
+            print("Auto-seeded BigBasket sales dataset successfully.")
                 
         conn.commit()
         conn.close()
@@ -4652,13 +5377,21 @@ def get_zepto_sales_summary():
     
     city_filter = request.args.get('city', 'All').strip()
     date_filter = request.args.get('date', 'All').strip()
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
     
     where_clauses = []
     params = []
     if city_filter != 'All':
         where_clauses.append('city = ?')
         params.append(city_filter)
-    if date_filter != 'All':
+    if start_date:
+        where_clauses.append('sale_date >= ?')
+        params.append(start_date)
+    if end_date:
+        where_clauses.append('sale_date <= ?')
+        params.append(end_date)
+    elif date_filter and date_filter != 'All':
         where_clauses.append('sale_date = ?')
         params.append(date_filter)
         
@@ -4752,7 +5485,25 @@ def get_instamart_sales_summary():
     conn = get_db()
     cur = conn.cursor()
     
-    kpi_row = cur.execute('''
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    date_filter = request.args.get('date', 'All').strip()
+    
+    where_clauses = []
+    params = []
+    if start_date:
+        where_clauses.append('sale_date >= ?')
+        params.append(start_date)
+    if end_date:
+        where_clauses.append('sale_date <= ?')
+        params.append(end_date)
+    elif date_filter and date_filter != 'All':
+        where_clauses.append('sale_date = ?')
+        params.append(date_filter)
+        
+    where_str = (' WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+    
+    kpi_row = cur.execute(f'''
     SELECT 
         COUNT(*) as total_rows,
         COALESCE(SUM(units_sold), 0) as total_units,
@@ -4760,13 +5511,13 @@ def get_instamart_sales_summary():
         COUNT(DISTINCT matched_sku) as total_products,
         MIN(sale_date) as min_date,
         MAX(sale_date) as max_date
-    FROM instamart_sales_orders
-    ''').fetchone()
+    FROM instamart_sales_orders {where_str}
+    ''', params).fetchone()
     
     kpis = dict(kpi_row) if kpi_row else {}
     
     # Clean product sales ledger
-    prod_rows = cur.execute('''
+    prod_rows = cur.execute(f'''
     SELECT 
         id,
         sale_date,
@@ -4781,10 +5532,10 @@ def get_instamart_sales_summary():
         gmv,
         source_file,
         created_at
-    FROM instamart_sales_orders
+    FROM instamart_sales_orders {where_str}
     ORDER BY sale_date DESC, gmv DESC
     LIMIT 250
-    ''').fetchall()
+    ''', params).fetchall()
     
     conn.close()
     return jsonify({
@@ -4793,12 +5544,143 @@ def get_instamart_sales_summary():
         'records': [dict(r) for r in prod_rows]
     })
 
+@app.route('/api/bigbasket/upload-sales', methods=['POST'])
+def upload_bigbasket_sales():
+    user_email, user_name = get_user_info()
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+        
+    f = request.files['file']
+    filename = (f.filename or 'BigBasket_Sales.csv')
+    content = f.read()
+    
+    conn = get_db()
+    cur = conn.cursor()
+    res = parse_bigbasket_sales_data(content, filename, f"{user_name} ({user_email})", cur)
+    if res.get('status') == 'error':
+        conn.close()
+        return jsonify(res), 400
+        
+    conn.commit()
+    record_audit(conn, 'UPLOAD_BIGBASKET_SALES', 'BigBasket Sales', filename, f"Ingested/updated {res['upserted_records']} BigBasket sales records ({res['total_units_sold']} units, ₹{res['total_sales_amount']:,.2f} Sales) for dates: {res['date_range']} by {user_name}")
+    conn.close()
+    return jsonify(res)
+
+@app.route('/api/bigbasket/sales-summary', methods=['GET'])
+def get_bigbasket_sales_summary():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    city_filter = request.args.get('city', 'All').strip()
+    date_filter = request.args.get('date', 'All').strip()
+    biz_filter = request.args.get('business_type', 'All').strip()
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    
+    where_clauses = []
+    params = []
+    if city_filter != 'All':
+        where_clauses.append('city = ?')
+        params.append(city_filter)
+    if biz_filter != 'All':
+        where_clauses.append('business_type = ?')
+        params.append(biz_filter)
+    if start_date:
+        where_clauses.append('sale_date >= ?')
+        params.append(start_date)
+    if end_date:
+        where_clauses.append('sale_date <= ?')
+        params.append(end_date)
+    elif date_filter and date_filter != 'All':
+        where_clauses.append('sale_date = ?')
+        params.append(date_filter)
+        
+    where_str = (' WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+    
+    kpi_row = cur.execute(f'''
+    SELECT 
+        COUNT(*) as total_rows,
+        COALESCE(SUM(units_sold), 0) as total_units,
+        COALESCE(SUM(sales_amount), 0.0) as total_sales,
+        COUNT(DISTINCT city) as total_cities,
+        COUNT(DISTINCT source_sku_id) as total_skus,
+        MIN(sale_date) as min_date,
+        MAX(sale_date) as max_date
+    FROM bigbasket_sales_orders {where_str}
+    ''', params).fetchone()
+    
+    city_rows = cur.execute(f'''
+    SELECT 
+        city,
+        SUM(units_sold) as units,
+        SUM(sales_amount) as sales,
+        COUNT(DISTINCT source_sku_id) as skus_count
+    FROM bigbasket_sales_orders {where_str}
+    GROUP BY city
+    ORDER BY sales DESC
+    LIMIT 30
+    ''', params).fetchall()
+    
+    sku_rows = cur.execute(f'''
+    SELECT 
+        matched_sku,
+        matched_product_name,
+        brand_slug,
+        SUM(units_sold) as units,
+        SUM(sales_amount) as sales
+    FROM bigbasket_sales_orders {where_str}
+    GROUP BY matched_sku, matched_product_name, brand_slug
+    ORDER BY units DESC
+    ''', params).fetchall()
+    
+    all_cities = [r[0] for r in cur.execute('SELECT DISTINCT city FROM bigbasket_sales_orders ORDER BY city').fetchall()]
+    all_dates = [r[0] for r in cur.execute('SELECT DISTINCT sale_date FROM bigbasket_sales_orders ORDER BY sale_date DESC').fetchall()]
+    all_biz = [r[0] for r in cur.execute('SELECT DISTINCT business_type FROM bigbasket_sales_orders ORDER BY business_type').fetchall()]
+    
+    records = cur.execute(f'''
+    SELECT 
+        id, sale_date, source_sku_id, sku_description, sku_weight, brand_slug,
+        city, business_type, top_slug, mid_slug, leaf_slug, units_sold, mrp, sales_amount,
+        matched_sku, matched_product_name, source_file, created_at
+    FROM bigbasket_sales_orders {where_str}
+    ORDER BY sale_date DESC, id DESC
+    LIMIT 250
+    ''', params).fetchall()
+    
+    conn.close()
+    return jsonify({
+        'status': 'success',
+        'kpis': dict(kpi_row) if kpi_row else {},
+        'cities': [dict(r) for r in city_rows],
+        'skus': [dict(r) for r in sku_rows],
+        'filter_options': {
+            'cities': all_cities,
+            'dates': all_dates,
+            'business_types': all_biz
+        },
+        'records': [dict(r) for r in records]
+    })
+
 @app.route('/api/blinkit/sales-tab-summary', methods=['GET'])
 def get_blinkit_sales_tab_summary():
     conn = get_db()
     cur = conn.cursor()
     
-    kpi_row = cur.execute('''
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+    
+    where_clauses = []
+    params = []
+    if start_date:
+        where_clauses.append('order_date >= ?')
+        params.append(start_date)
+    if end_date:
+        where_clauses.append('order_date <= ?')
+        params.append(end_date)
+        
+    where_str = (' WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+    
+    kpi_row = cur.execute(f'''
     SELECT 
         COUNT(*) as total_orders,
         COALESCE(SUM(quantity), 0) as total_units,
@@ -4808,41 +5690,41 @@ def get_blinkit_sales_tab_summary():
         COUNT(DISTINCT item_id) as unique_items,
         MIN(order_date) as min_date,
         MAX(order_date) as max_date
-    FROM blinkit_sales_orders
-    ''').fetchone()
+    FROM blinkit_sales_orders {where_str}
+    ''', params).fetchone()
     
-    city_rows = cur.execute('''
+    city_rows = cur.execute(f'''
     SELECT 
         supply_city as city,
         COUNT(*) as order_count,
         SUM(quantity) as units,
         SUM(total_gross_amount) as revenue
-    FROM blinkit_sales_orders
+    FROM blinkit_sales_orders {where_str}
     GROUP BY supply_city
     ORDER BY revenue DESC
     LIMIT 20
-    ''').fetchall()
+    ''', params).fetchall()
     
-    product_rows = cur.execute('''
+    product_rows = cur.execute(f'''
     SELECT 
         product_name,
         brand_name,
         COUNT(*) as order_count,
         SUM(quantity) as units,
         SUM(total_gross_amount) as revenue
-    FROM blinkit_sales_orders
+    FROM blinkit_sales_orders {where_str}
     GROUP BY product_name, brand_name
     ORDER BY units DESC
-    ''').fetchall()
+    ''', params).fetchall()
     
-    recent_rows = cur.execute('''
+    recent_rows = cur.execute(f'''
     SELECT 
         order_id, order_date, product_name, brand_name, supply_city, customer_city,
         quantity, mrp, selling_price, total_gross_amount, order_status
-    FROM blinkit_sales_orders
+    FROM blinkit_sales_orders {where_str}
     ORDER BY order_date DESC, created_at DESC
     LIMIT 200
-    ''').fetchall()
+    ''', params).fetchall()
     
     conn.close()
     return jsonify({
@@ -4872,6 +5754,11 @@ def get_sales_hub_summary():
     SELECT COUNT(*) as records, COALESCE(SUM(units_sold), 0) as units, COALESCE(SUM(gmv), 0.0) as rev, MIN(sale_date) as min_d, MAX(sale_date) as max_d
     FROM instamart_sales_orders
     ''').fetchone()
+
+    bb = cur.execute('''
+    SELECT COUNT(*) as records, COALESCE(SUM(units_sold), 0) as units, COALESCE(SUM(sales_amount), 0.0) as rev, COUNT(DISTINCT city) as cities, MIN(sale_date) as min_d, MAX(sale_date) as max_d
+    FROM bigbasket_sales_orders
+    ''').fetchone()
     
     cen = cur.execute('''
     SELECT COUNT(*) as rows, COALESCE(SUM(units_sold), 0) as units, COALESCE(SUM(revenue), 0.0) as rev
@@ -4884,6 +5771,7 @@ def get_sales_hub_summary():
         'blinkit': dict(blk) if blk else {},
         'zepto': dict(zpt) if zpt else {},
         'instamart': dict(ins) if ins else {},
+        'bigbasket': dict(bb) if bb else {},
         'consolidated': dict(cen) if cen else {}
     })
 

@@ -76,6 +76,35 @@ class TestQuickCommerceSalesHub(unittest.TestCase):
         sd_count2 = self.cur.execute("SELECT COUNT(*) FROM sales_data WHERE platform = 'Instamart' AND sale_date = '2026-09-25'").fetchone()[0]
         self.assertEqual(sd_count, sd_count2, "Central sales_data should not duplicate Instamart records on re-upload")
 
+    def test_bigbasket_parsing_and_anti_overlap(self):
+        bb_sample = app.BIGBASKET_INITIAL_SEED_CSV
+        
+        # Ingestion 1
+        res1 = app.parse_bigbasket_sales_data(bb_sample, 'test_bb.csv', 'Tester', self.cur)
+        self.conn.commit()
+        count1 = self.cur.execute('SELECT COUNT(*) FROM bigbasket_sales_orders').fetchone()[0]
+        self.assertGreater(count1, 0, "BigBasket rows should be > 0")
+        self.assertEqual(res1['total_units_sold'], 69)
+        self.assertAlmostEqual(res1['total_sales_amount'], 5650.77, places=1)
+        
+        # Ingestion 2 of the same file (same dates, same SKUs, same cities)
+        res2 = app.parse_bigbasket_sales_data(bb_sample, 'test_bb.csv', 'Tester', self.cur)
+        self.conn.commit()
+        count2 = self.cur.execute('SELECT COUNT(*) FROM bigbasket_sales_orders').fetchone()[0]
+        
+        # Must be identical - NO DUPLICATION / OVERLAP!
+        self.assertEqual(count1, count2, f"Re-uploading same date should not duplicate BigBasket records! {count1} vs {count2}")
+        
+        # Check central sales_data deduplication
+        sd_count = self.cur.execute("SELECT COUNT(*) FROM sales_data WHERE platform = 'BigBasket' AND sale_date = '2026-09-27'").fetchone()[0]
+        self.assertGreater(sd_count, 0)
+        
+        # Re-upload third time
+        app.parse_bigbasket_sales_data(bb_sample, 'test_bb.csv', 'Tester', self.cur)
+        self.conn.commit()
+        sd_count2 = self.cur.execute("SELECT COUNT(*) FROM sales_data WHERE platform = 'BigBasket' AND sale_date = '2026-09-27'").fetchone()[0]
+        self.assertEqual(sd_count, sd_count2, "Central sales_data should not duplicate BigBasket records on re-upload")
+
     def test_summary_apis(self):
         self.app.post('/login', data={'email': 'admin@company.com', 'password': 'Admin@123'})
 
@@ -95,6 +124,15 @@ class TestQuickCommerceSalesHub(unittest.TestCase):
         self.assertIn('kpis', i_data)
         self.assertIn('records', i_data)
 
+        # BigBasket summary API
+        bb_res = self.app.get('/api/bigbasket/sales-summary')
+        self.assertEqual(bb_res.status_code, 200)
+        bb_data = bb_res.get_json()
+        self.assertEqual(bb_data['status'], 'success')
+        self.assertIn('kpis', bb_data)
+        self.assertIn('cities', bb_data)
+        self.assertIn('records', bb_data)
+
         # Blinkit sales tab summary API
         b_res = self.app.get('/api/blinkit/sales-tab-summary')
         self.assertEqual(b_res.status_code, 200)
@@ -109,6 +147,7 @@ class TestQuickCommerceSalesHub(unittest.TestCase):
         self.assertIn('zepto', h_data)
         self.assertIn('instamart', h_data)
         self.assertIn('blinkit', h_data)
+        self.assertIn('bigbasket', h_data)
 
     def test_instamart_excel_sales_report(self):
         real_excel_path = r'c:\Users\Admin\Downloads\13671_1790410348788.xlsx'

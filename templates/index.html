@@ -418,7 +418,7 @@
             </div>
           </div>
 
-          <!-- 8. PLATFORM SALES HUB (BLINKIT • ZEPTO • INSTAMART) -->
+          <!-- 8. PLATFORM SALES HUB (BLINKIT • ZEPTO • INSTAMART • BIGBASKET) -->
           <div onclick="switchTab('sales'); selectSalesPlatform('consolidated');" class="group bg-gradient-to-br from-purple-500/10 via-white to-amber-500/5 rounded-2xl border-2 border-purple-300 p-5 shadow-sm hover:shadow-md hover:border-purple-500 transition cursor-pointer flex flex-col justify-between relative overflow-hidden">
             <div class="absolute -right-3 -top-3 w-16 h-16 bg-purple-400/20 rounded-full blur-xl pointer-events-none"></div>
             <div>
@@ -426,21 +426,22 @@
                 <div class="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center text-lg shadow-sm font-black">
                   <i class="fa-solid fa-chart-line"></i>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-1 flex-wrap">
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">Blinkit</span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">Zepto</span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-900 border border-orange-300">Instamart</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-900 border border-rose-300">BigBasket</span>
                 </div>
               </div>
               <h3 class="font-bold text-sm text-slate-900 group-hover:text-purple-700 transition mb-1 flex items-center gap-1.5 cursor-pointer" onclick="switchTab('sales'); selectSalesPlatform('consolidated');">
                 📈 Platform Sales Hub
               </h3>
               <p class="text-xs text-slate-600 leading-relaxed mb-3">
-                Integrated daily sales ingestion for <strong>Blinkit</strong>, <strong>Zepto</strong>, and <strong>Instamart</strong>. Zero data overlapping with automatic deduplication.
+                Integrated daily sales ingestion for <strong>Blinkit</strong>, <strong>Zepto</strong>, <strong>Instamart</strong>, and <strong>BigBasket</strong>. Zero data overlapping with automatic deduplication.
               </p>
               
               <!-- Direct Sub-Launchers -->
-              <div class="grid grid-cols-3 gap-1.5 pt-2 border-t border-purple-100">
+              <div class="grid grid-cols-4 gap-1.5 pt-2 border-t border-purple-100">
                 <button onclick="event.stopPropagation(); switchTab('sales'); selectSalesPlatform('zepto');" class="px-2 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200 flex flex-col items-center transition shadow-2xs">
                   <span>⚡ Zepto</span>
                   <span class="text-[9px] font-normal text-emerald-600">Daily Sales</span>
@@ -452,6 +453,10 @@
                 <button onclick="event.stopPropagation(); switchTab('sales'); selectSalesPlatform('instamart');" class="px-2 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-900 text-[11px] font-bold border border-orange-200 flex flex-col items-center transition shadow-2xs">
                   <span>⚡ Instamart</span>
                   <span class="text-[9px] font-normal text-orange-700">Daily Sales</span>
+                </button>
+                <button onclick="event.stopPropagation(); switchTab('sales'); selectSalesPlatform('bigbasket');" class="px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-900 text-[11px] font-bold border border-rose-200 flex flex-col items-center transition shadow-2xs">
+                  <span>🛒 BigBasket</span>
+                  <span class="text-[9px] font-normal text-rose-700">Daily Sales</span>
                 </button>
               </div>
             </div>
@@ -571,13 +576,17 @@
               </span>
             </h2>
             <p class="text-[11px] text-slate-500">
-              Integrated daily sales ingestion for <strong>Zepto</strong>, <strong>Blinkit</strong>, and <strong>Instamart</strong>. Re-uploading identical dates updates records without overlapping numbers.
+              Integrated daily sales ingestion for <strong>Zepto</strong>, <strong>Blinkit</strong>, <strong>Instamart</strong>, and <strong>BigBasket</strong>. Re-uploading identical dates updates records without overlapping numbers.
             </p>
           </div>
           
           <!-- SUB-PLATFORM NAV TABS -->
-          <div class="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-2xs">
-            <button onclick="selectSalesPlatform('zepto')" id="salesTabBtn-zepto" class="sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-emerald-900 shadow-2xs border border-emerald-200">
+          <div class="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-2xs overflow-x-auto">
+            <button onclick="selectSalesPlatform('dashboard')" id="salesTabBtn-dashboard" class="sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-blue-900 shadow-2xs border border-blue-300">
+              <span class="w-2 h-2 rounded-full bg-blue-600"></span>
+              <span>📊 Sales Dashboard</span>
+            </button>
+            <button onclick="selectSalesPlatform('zepto')" id="salesTabBtn-zepto" class="sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 text-slate-600 hover:text-slate-900">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>⚡ Zepto Sales</span>
             </button>
@@ -589,6 +598,10 @@
               <span class="w-2 h-2 rounded-full bg-orange-500"></span>
               <span>⚡ Instamart Sales</span>
             </button>
+            <button onclick="selectSalesPlatform('bigbasket')" id="salesTabBtn-bigbasket" class="sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 text-slate-600 hover:text-slate-900">
+              <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+              <span>🛒 BigBasket Sales</span>
+            </button>
             <button onclick="selectSalesPlatform('consolidated')" id="salesTabBtn-consolidated" class="sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 text-slate-600 hover:text-slate-900">
               <span class="w-2 h-2 rounded-full bg-purple-500"></span>
               <span>🌐 Consolidated Pipeline</span>
@@ -597,9 +610,285 @@
         </div>
 
         <!-- ========================================== -->
+        <!-- SUB-VIEW 0: MULTI-DIMENSIONAL SALES DASHBOARD -->
+        <!-- ========================================== -->
+        <div id="sales-subview-dashboard" class="sales-subview flex-1 flex flex-col space-y-3 overflow-hidden">
+          
+          <!-- FILTER CONTROL BAR & DEDICATED DATE RANGE SELECTOR -->
+          <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs space-y-3">
+            
+            <!-- TOP BAR: TITLE + DATE RANGE PRESETS & ACTIONS -->
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div class="flex items-center gap-2.5">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-sm shadow-2xs">
+                  <i class="fa-solid fa-chart-line"></i>
+                </span>
+                <div>
+                  <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Multi-Channel Sales Intelligence & Filter Hub</span>
+                  </h3>
+                  <p class="text-[11px] text-slate-500">Filter daily sales anytime across custom Date Ranges, Platforms, Products, and Dark Store Locations</p>
+                </div>
+              </div>
+              
+              <!-- DATE PRESET SELECTOR & ACTIONS -->
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-0.5">
+                  <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1.5">Preset:</span>
+                  <select id="salesDashDatePresetSelect" onchange="setSalesDashDatePreset(this.value)" class="bg-white border border-slate-200 text-slate-800 text-xs font-semibold rounded-md px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs">
+                    <option value="all">📅 All Time (Full History)</option>
+                    <option value="today">⚡ Latest Available Date</option>
+                    <option value="yesterday">⏮️ Previous Day</option>
+                    <option value="7d">📊 Last 7 Days</option>
+                    <option value="14d">📊 Last 14 Days</option>
+                    <option value="30d" selected>📈 Last 30 Days</option>
+                    <option value="this_month">🗓️ This Month (MTD)</option>
+                    <option value="last_month">🗓️ Last Month</option>
+                    <option value="custom">✏️ Custom Date Range...</option>
+                  </select>
+                </div>
+
+                <!-- Quick Preset Pill Buttons for Fast Desktop Navigation -->
+                <div class="hidden xl:flex items-center gap-1">
+                  <button type="button" onclick="setSalesDashDatePreset('all')" id="btnSalesDashPreset-all" class="px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition">All Time</button>
+                  <button type="button" onclick="setSalesDashDatePreset('7d')" id="btnSalesDashPreset-7d" class="px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition">7D</button>
+                  <button type="button" onclick="setSalesDashDatePreset('14d')" id="btnSalesDashPreset-14d" class="px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition">14D</button>
+                  <button type="button" onclick="setSalesDashDatePreset('30d')" id="btnSalesDashPreset-30d" class="px-2 py-1 text-[11px] font-bold rounded-md border bg-blue-50 text-blue-700 border-blue-200 shadow-2xs transition">30D</button>
+                  <button type="button" onclick="setSalesDashDatePreset('this_month')" id="btnSalesDashPreset-this_month" class="px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition">MTD</button>
+                </div>
+                
+                <div class="h-4 w-px bg-slate-200 mx-1"></div>
+                
+                <button type="button" onclick="resetSalesDashFilters()" class="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition flex items-center gap-1" title="Clear all active filters">
+                  <i class="fa-solid fa-rotate-left text-slate-500"></i> Reset
+                </button>
+                <button type="button" onclick="exportSalesDashboardCSV()" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition flex items-center gap-1" title="Download filtered dataset as CSV">
+                  <i class="fa-solid fa-file-csv"></i> Export CSV
+                </button>
+              </div>
+            </div>
+
+            <!-- PRIMARY FILTER ROW: DEDICATED DATE PICKERS + PLATFORM + SKU + LOCATION -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 text-xs items-end">
+              
+              <!-- 1. FROM DATE -->
+              <div class="lg:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                  <i class="fa-regular fa-calendar text-blue-600"></i> From Date
+                </label>
+                <input type="date" id="salesDashStartDate" onchange="onSalesDashManualDateChange()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:ring-1 focus:ring-blue-500 focus:bg-white transition" />
+              </div>
+              
+              <!-- 2. TO DATE -->
+              <div class="lg:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                  <i class="fa-regular fa-calendar-check text-blue-600"></i> To Date
+                </label>
+                <input type="date" id="salesDashEndDate" onchange="onSalesDashManualDateChange()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:ring-1 focus:ring-blue-500 focus:bg-white transition" />
+              </div>
+
+              <!-- 3. PLATFORM FILTER -->
+              <div class="lg:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Platform</label>
+                <select id="salesDashPlatformFilter" onchange="loadSalesDashboardAnalytics()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:ring-1 focus:ring-blue-500 focus:bg-white transition">
+                  <option value="All">All Platforms</option>
+                </select>
+              </div>
+
+              <!-- 4. PRODUCT FILTER -->
+              <div class="lg:col-span-3">
+                <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Product SKU</label>
+                <select id="salesDashProductFilter" onchange="loadSalesDashboardAnalytics()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:ring-1 focus:ring-blue-500 focus:bg-white truncate transition">
+                  <option value="All">All Products</option>
+                </select>
+              </div>
+
+              <!-- 5. LOCATION FILTER -->
+              <div class="lg:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Location / Hub</label>
+                <select id="salesDashLocationFilter" onchange="loadSalesDashboardAnalytics()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:ring-1 focus:ring-blue-500 focus:bg-white transition">
+                  <option value="All">All Locations & Cities</option>
+                </select>
+              </div>
+
+              <!-- 6. APPLY / VIEW SALES DATA BUTTON -->
+              <div class="lg:col-span-1">
+                <button type="button" onclick="loadSalesDashboardAnalytics()" class="w-full py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition flex items-center justify-center gap-1" title="Apply filters and refresh analytics">
+                  <i class="fa-solid fa-magnifying-glass"></i> View
+                </button>
+              </div>
+            </div>
+
+            <!-- ACTIVE DATE RANGE BANNER & INSTANT SEARCH -->
+            <div class="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div class="flex items-center gap-2 flex-wrap">
+                <div id="salesDashActiveRangeBanner" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                  <i class="fa-regular fa-calendar-days text-blue-600"></i>
+                  <span id="salesDashDateRangeText">Loading sales date range...</span>
+                </div>
+                <div id="salesDashFilterBadgeContainer" class="flex items-center gap-1.5 flex-wrap text-[11px] text-slate-600">
+                  <span class="text-slate-400">Filters:</span>
+                  <span class="bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-medium">All Data</span>
+                </div>
+              </div>
+
+              <div class="relative w-full sm:w-72">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                <input type="text" id="salesDashSearchInput" oninput="debounceSalesDashSearch()" placeholder="Instant filter products or hubs..." class="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-blue-500 transition" />
+              </div>
+            </div>
+          </div>
+
+          <!-- EXECUTIVE KPI CARDS -->
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+            <!-- Units Sold -->
+            <div class="bg-white border border-blue-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Total Units Sold</span>
+                <span class="p-1 rounded bg-blue-50 text-blue-600 text-xs"><i class="fa-solid fa-boxes-stacked"></i></span>
+              </div>
+              <span id="salesDashKpiUnits" class="text-xl font-black text-blue-950 mt-1">--</span>
+              <span class="text-[10px] text-blue-600 font-medium">Offtake Volume</span>
+            </div>
+
+            <!-- Total Revenue -->
+            <div class="bg-white border border-emerald-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Gross Sales Value</span>
+                <span class="p-1 rounded bg-emerald-50 text-emerald-600 text-xs"><i class="fa-solid fa-indian-rupee-sign"></i></span>
+              </div>
+              <span id="salesDashKpiRevenue" class="text-xl font-black text-emerald-950 mt-1">--</span>
+              <span class="text-[10px] text-emerald-600 font-medium">Delivered GMV</span>
+            </div>
+
+            <!-- Active Platforms -->
+            <div class="bg-white border border-purple-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Platforms Active</span>
+                <span class="p-1 rounded bg-purple-50 text-purple-600 text-xs"><i class="fa-solid fa-globe"></i></span>
+              </div>
+              <span id="salesDashKpiPlatforms" class="text-xl font-black text-purple-950 mt-1">--</span>
+              <span id="salesDashKpiPlatformsSub" class="text-[10px] text-purple-600 font-medium">Quick-Commerce</span>
+            </div>
+
+            <!-- Active Locations -->
+            <div class="bg-white border border-amber-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Cities / Dark Stores</span>
+                <span class="p-1 rounded bg-amber-50 text-amber-600 text-xs"><i class="fa-solid fa-map-location-dot"></i></span>
+              </div>
+              <span id="salesDashKpiLocations" class="text-xl font-black text-amber-950 mt-1">--</span>
+              <span class="text-[10px] text-amber-600 font-medium">Distribution Reach</span>
+            </div>
+
+            <!-- Average Unit Realization -->
+            <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs flex flex-col justify-between col-span-2 sm:col-span-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Avg Unit Value</span>
+                <span class="p-1 rounded bg-slate-100 text-slate-600 text-xs"><i class="fa-solid fa-tag"></i></span>
+              </div>
+              <span id="salesDashKpiAvgPrice" class="text-xl font-black text-slate-900 mt-1">--</span>
+              <span class="text-[10px] text-slate-500 font-medium">₹ Realization / Unit</span>
+            </div>
+          </div>
+
+          <!-- BREAKDOWN CARDS (PLATFORM SHARE & TOP METRICS) -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+            <!-- Platform Share Card -->
+            <div class="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex flex-col">
+              <div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
+                <span class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <i class="fa-solid fa-chart-pie text-blue-600"></i> Platform Market Share & Volume
+                </span>
+                <span id="salesDashPlatformTotalLabel" class="text-[11px] font-mono text-slate-500">--</span>
+              </div>
+              <div id="salesDashPlatformShareList" class="space-y-2.5 flex-1 flex flex-col justify-center">
+                <!-- Injected via JavaScript -->
+              </div>
+            </div>
+
+            <!-- Top Products & Locations Split Card -->
+            <div class="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex flex-col">
+              <div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
+                <span class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <i class="fa-solid fa-ranking-star text-amber-500"></i> Top Products & Regional Hotspots
+                </span>
+                <span class="text-[10px] text-slate-400 font-medium">Sorted by Offtake Units</span>
+              </div>
+              
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
+                <!-- Top Products -->
+                <div>
+                  <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                    <i class="fa-solid fa-box text-blue-500"></i> Top SKUs
+                  </h4>
+                  <div id="salesDashTopProductsList" class="space-y-1.5">
+                    <!-- Injected via JS -->
+                  </div>
+                </div>
+
+                <!-- Top Cities -->
+                <div>
+                  <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                    <i class="fa-solid fa-city text-emerald-500"></i> Top Locations
+                  </h4>
+                  <div id="salesDashTopLocationsList" class="space-y-1.5">
+                    <!-- Injected via JS -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DETAILED FILTERED SALES LEDGER TABLE -->
+          <div class="bg-white border border-slate-200 rounded-xl shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div class="px-3.5 py-2.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <i class="fa-solid fa-table-list text-slate-600"></i> Filtered Sales Transaction Ledger
+                </span>
+                <span id="salesDashRecordCountBadge" class="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full border border-blue-200">
+                  0 Records
+                </span>
+              </div>
+              <div class="text-[11px] text-slate-500 font-medium">
+                Live Data Synchronized &bull; Zero Duplicate Overlap
+              </div>
+            </div>
+
+            <div class="flex-1 overflow-auto">
+              <table class="w-full text-left text-xs text-slate-600">
+                <thead class="bg-slate-100 text-slate-700 uppercase font-semibold text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-200 shadow-2xs">
+                  <tr class="divide-x divide-slate-200">
+                    <th class="py-2.5 px-3 whitespace-nowrap">Sale Date</th>
+                    <th class="py-2.5 px-2.5 text-center">Platform</th>
+                    <th class="py-2.5 px-3 whitespace-nowrap">Canonical SKU</th>
+                    <th class="py-2.5 px-3 whitespace-nowrap min-w-[200px]">Product Name</th>
+                    <th class="py-2.5 px-2.5 whitespace-nowrap">Brand</th>
+                    <th class="py-2.5 px-3 whitespace-nowrap">Location / City</th>
+                    <th class="py-2.5 px-3 text-right bg-blue-50/60 text-blue-950 font-bold whitespace-nowrap">Units Sold</th>
+                    <th class="py-2.5 px-3 text-right bg-emerald-50/60 text-emerald-950 font-bold whitespace-nowrap">Revenue (₹)</th>
+                    <th class="py-2.5 px-3 whitespace-nowrap text-slate-400 font-mono text-[10px]">Source Reference</th>
+                  </tr>
+                </thead>
+                <tbody id="salesDashTableBody" class="divide-y divide-slate-100">
+                  <tr>
+                    <td colspan="9" class="p-8 text-center text-slate-400">
+                      <i class="fa-solid fa-spinner fa-spin text-blue-500 text-xl mb-2"></i>
+                      <p>Loading Sales Dashboard analytics...</p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ========================================== -->
         <!-- SUB-VIEW 1: ZEPTO SALES WORKSPACE          -->
         <!-- ========================================== -->
-        <div id="sales-subview-zepto" class="sales-subview flex-1 flex flex-col space-y-3 overflow-hidden">
+        <div id="sales-subview-zepto" class="sales-subview hidden flex-1 flex flex-col space-y-3 overflow-hidden">
           <!-- Zepto Upload Card & KPI Grid -->
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
             <!-- Dropzone -->
@@ -670,14 +959,17 @@
 
           <!-- Zepto Table Filters & Search -->
           <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="text-xs font-bold text-slate-700">Filter By City:</span>
               <select id="zeptoFilterCity" onchange="loadZeptoSales()" class="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 shadow-2xs">
                 <option value="All">All Cities</option>
               </select>
-              <span class="text-xs font-bold text-slate-700 ml-2">Date:</span>
-              <select id="zeptoFilterDate" onchange="loadZeptoSales()" class="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 shadow-2xs">
-                <option value="All">All Dates</option>
+              <span class="text-xs font-bold text-slate-700 ml-1">Date Range:</span>
+              <input type="date" id="zeptoStartDate" onchange="loadZeptoSales()" title="From Date" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white text-slate-700 shadow-2xs" />
+              <span class="text-xs text-slate-400">to</span>
+              <input type="date" id="zeptoEndDate" onchange="loadZeptoSales()" title="To Date" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white text-slate-700 shadow-2xs" />
+              <select id="zeptoFilterDate" onchange="loadZeptoSales()" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white text-slate-700 shadow-2xs">
+                <option value="All">Specific Date...</option>
               </select>
             </div>
             <div class="flex items-center gap-2">
@@ -788,6 +1080,25 @@
             <button onclick="switchTab('blinkit-optimizer')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold px-3.5 py-1.5 rounded-lg border border-amber-400 flex items-center gap-1.5 shadow-2xs transition">
               <i class="fa-solid fa-calculator"></i> Launch Replenishment Optimizer
             </button>
+          <!-- Blinkit Date Range Filter Bar -->
+          <div class="bg-white border border-slate-200 rounded-xl px-3.5 py-2 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <i class="fa-solid fa-calendar-days text-amber-600"></i> Date Range:
+              </span>
+              <input type="date" id="blinkitStartDate" onchange="loadBlinkitSalesTab()" title="From Date" class="text-xs border border-amber-200 rounded-lg px-2.5 py-1 bg-amber-50/20 font-medium text-slate-800 outline-none focus:border-amber-500" />
+              <span class="text-xs text-slate-400">to</span>
+              <input type="date" id="blinkitEndDate" onchange="loadBlinkitSalesTab()" title="To Date" class="text-xs border border-amber-200 rounded-lg px-2.5 py-1 bg-amber-50/20 font-medium text-slate-800 outline-none focus:border-amber-500" />
+              <button onclick="loadBlinkitSalesTab()" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold rounded-lg transition flex items-center gap-1">
+                <i class="fa-solid fa-filter"></i> Apply
+              </button>
+              <button onclick="document.getElementById('blinkitStartDate').value=''; document.getElementById('blinkitEndDate').value=''; loadBlinkitSalesTab();" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-lg transition" title="Clear Date Range">
+                Clear
+              </button>
+            </div>
+            <div class="text-[11px] text-slate-500">
+              Filtered Blinkit Sales Orders
+            </div>
           </div>
 
           <!-- Blinkit Orders Ledger -->
@@ -873,11 +1184,20 @@
 
           <!-- Instamart Sales Table -->
           <div class="table-container overflow-auto border border-slate-200 rounded-xl shadow-2xs flex-1 bg-white">
-            <div class="bg-slate-50 border-b border-slate-200 px-3.5 py-2 flex items-center justify-between">
+            <div class="bg-slate-50 border-b border-slate-200 px-3.5 py-2 flex items-center justify-between flex-wrap gap-2">
               <span class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <i class="fa-solid fa-cart-shopping text-orange-600"></i> Swiggy Instamart Daily Product Sales Offtake
               </span>
-              <span class="text-[10px] text-slate-400">Deduplicated Ingestion Ledger</span>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <i class="fa-solid fa-calendar-days text-orange-600"></i> Date Range:
+                </span>
+                <input type="date" id="instamartStartDate" onchange="loadInstamartSales()" title="From Date" class="text-xs border border-orange-200 rounded-lg px-2.5 py-1 bg-white font-medium text-slate-800 outline-none focus:border-orange-500" />
+                <span class="text-xs text-slate-400">to</span>
+                <input type="date" id="instamartEndDate" onchange="loadInstamartSales()" title="To Date" class="text-xs border border-orange-200 rounded-lg px-2.5 py-1 bg-white font-medium text-slate-800 outline-none focus:border-orange-500" />
+                <button onclick="loadInstamartSales()" class="px-2.5 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition">Apply</button>
+                <button onclick="document.getElementById('instamartStartDate').value=''; document.getElementById('instamartEndDate').value=''; loadInstamartSales();" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs rounded-lg transition" title="Clear Date Range">Clear</button>
+              </div>
             </div>
             <table class="w-full text-xs text-left border-collapse">
               <thead class="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-10 border-b border-slate-200">
@@ -900,7 +1220,117 @@
         </div>
 
         <!-- ========================================== -->
-        <!-- SUB-VIEW 4: CONSOLIDATED PIPELINE & DOI    -->
+        <!-- SUB-VIEW 4: BIGBASKET SALES WORKSPACE      -->
+        <!-- ========================================== -->
+        <div id="sales-subview-bigbasket" class="sales-subview flex-1 flex flex-col space-y-3 overflow-hidden hidden">
+          <!-- BigBasket Upload Card & KPI Grid -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+            <!-- Dropzone -->
+            <div class="lg:col-span-4 bg-gradient-to-br from-rose-50/70 via-white to-rose-50/30 border border-rose-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs">
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+                    <i class="fa-solid fa-cloud-arrow-up text-rose-600"></i> Upload BigBasket Daily Sales CSV
+                  </span>
+                  <span class="text-[10px] font-semibold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-300">
+                    Anti-Overlap Active
+                  </span>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-2 leading-relaxed">
+                  Upload daily sales report downloaded from BigBasket (Supports B2C & BBDaily formats). Re-uploading identical dates updates records without duplication.
+                </p>
+                <div class="flex items-center gap-2">
+                  <input type="file" id="bigbasketFileInput" accept=".csv, .xlsx, .xls" class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-rose-600 file:text-white hover:file:bg-rose-700 cursor-pointer w-full" />
+                  <button onclick="handleBigBasketUpload()" id="bigbasketUploadBtn" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xs transition whitespace-nowrap flex items-center gap-1">
+                    <i class="fa-solid fa-upload"></i> Ingest
+                  </button>
+                </div>
+              </div>
+              <div id="bigbasketUploadNotice" class="text-[10px] text-rose-700 mt-2 font-medium flex items-center gap-1">
+                <i class="fa-solid fa-circle-check"></i> Ready for BigBasket daily sales ingestion.
+              </div>
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div class="bg-white border border-rose-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Units Sold</span>
+                <span id="bigbasketKpiUnits" class="text-xl font-black text-rose-950 mt-1">--</span>
+                <span class="text-[10px] text-rose-600 font-medium">Daily Quantity</span>
+              </div>
+              <div class="bg-white border border-rose-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Total Net Sales (₹)</span>
+                <span id="bigbasketKpiSales" class="text-xl font-black text-slate-900 mt-1">--</span>
+                <span class="text-[10px] text-slate-400">Total Sales Value</span>
+              </div>
+              <div class="bg-white border border-rose-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Active Cities</span>
+                <span id="bigbasketKpiCities" class="text-xl font-black text-purple-900 mt-1">--</span>
+                <span class="text-[10px] text-purple-600">Distribution Footprint</span>
+              </div>
+              <div class="bg-white border border-rose-100 rounded-xl p-3 shadow-2xs flex flex-col justify-between">
+                <span class="text-[11px] font-semibold text-slate-500">Active Date</span>
+                <span id="bigbasketKpiDate" class="text-sm font-bold font-mono text-slate-800 mt-1">--</span>
+                <span class="text-[10px] text-emerald-700">Latest Sync</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- BigBasket Filter Bar -->
+          <div class="bg-white border border-slate-200 rounded-xl px-3.5 py-2 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-filter text-rose-600"></i> Filters:
+              </span>
+              <select id="bigbasketFilterCity" onchange="loadBigBasketSales()" class="text-xs border border-slate-200 rounded-lg px-2.5 py-1 bg-slate-50 font-medium text-slate-700 outline-none focus:border-rose-500">
+                <option value="All">All Cities</option>
+              </select>
+              <select id="bigbasketFilterBiz" onchange="loadBigBasketSales()" class="text-xs border border-slate-200 rounded-lg px-2.5 py-1 bg-slate-50 font-medium text-slate-700 outline-none focus:border-rose-500">
+                <option value="All">All Channels (B2C / BBDaily)</option>
+              </select>
+              <span class="text-xs font-bold text-slate-700 ml-1">Date Range:</span>
+              <input type="date" id="bigbasketStartDate" onchange="loadBigBasketSales()" title="From Date" class="text-xs border border-rose-200 rounded-lg px-2.5 py-1 bg-slate-50 font-medium text-slate-800 outline-none focus:border-rose-500" />
+              <span class="text-xs text-slate-400">to</span>
+              <input type="date" id="bigbasketEndDate" onchange="loadBigBasketSales()" title="To Date" class="text-xs border border-rose-200 rounded-lg px-2.5 py-1 bg-slate-50 font-medium text-slate-800 outline-none focus:border-rose-500" />
+              <select id="bigbasketFilterDate" onchange="loadBigBasketSales()" class="text-xs border border-slate-200 rounded-lg px-2.5 py-1 bg-slate-50 font-medium text-slate-700 outline-none focus:border-rose-500">
+                <option value="All">Specific Date...</option>
+              </select>
+            </div>
+            <span class="text-[11px] text-slate-400">Canonical Product Matching Active</span>
+          </div>
+
+          <!-- BigBasket Sales Table -->
+          <div class="table-container overflow-auto border border-slate-200 rounded-xl shadow-2xs flex-1 bg-white">
+            <div class="bg-slate-50 border-b border-slate-200 px-3.5 py-2 flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <i class="fa-solid fa-cart-shopping text-rose-600"></i> BigBasket Daily Product Sales Offtake
+              </span>
+              <span class="text-[10px] text-slate-400">Deduplicated Ingestion Ledger</span>
+            </div>
+            <table class="w-full text-xs text-left border-collapse">
+              <thead class="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-10 border-b border-slate-200">
+                <tr>
+                  <th class="py-2.5 px-3 whitespace-nowrap">Sale Date</th>
+                  <th class="py-2.5 px-3 whitespace-nowrap">City</th>
+                  <th class="py-2.5 px-2.5 whitespace-nowrap">Channel</th>
+                  <th class="py-2.5 px-3 whitespace-nowrap">Source SKU</th>
+                  <th class="py-2.5 px-3 min-w-[200px]">Mapped Master Product</th>
+                  <th class="py-2.5 px-2.5">Brand</th>
+                  <th class="py-2.5 px-2.5 whitespace-nowrap">Weight</th>
+                  <th class="py-2.5 px-3 text-right font-bold text-rose-950 bg-rose-50 font-mono">Units Sold</th>
+                  <th class="py-2.5 px-3 text-right font-bold font-mono text-slate-900 bg-rose-50/50">Total Sales (₹)</th>
+                  <th class="py-2.5 px-2.5 text-slate-400 font-mono text-[11px]">Source File</th>
+                </tr>
+              </thead>
+              <tbody id="bigbasketTableBody" class="divide-y divide-slate-100 bg-white">
+                <tr><td colspan="10" class="p-4 text-center text-slate-400">Loading BigBasket sales data...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- SUB-VIEW 5: CONSOLIDATED PIPELINE & DOI    -->
         <!-- ========================================== -->
         <div id="sales-subview-consolidated" class="sales-subview flex-1 flex flex-col space-y-3 overflow-hidden hidden">
           <!-- Action row -->
@@ -3928,12 +4358,14 @@
       });
     }
 
-    // --- MULTI-PLATFORM SALES COMMAND CENTER (ZEPTO • BLINKIT • INSTAMART • CONSOLIDATED) ---
-    let currentSalesPlatform = 'zepto';
+    // --- MULTI-PLATFORM SALES COMMAND CENTER (DASHBOARD • ZEPTO • BLINKIT • INSTAMART • BIGBASKET • CONSOLIDATED) ---
+    let currentSalesPlatform = 'dashboard';
     let zeptoRecordsCache = [];
+    let salesDashAnalyticsData = null;
+    let salesDashDebounceTimer = null;
 
     function selectSalesPlatform(plat) {
-      currentSalesPlatform = plat || 'zepto';
+      currentSalesPlatform = plat || 'dashboard';
 
       // 1. Hide all subviews
       document.querySelectorAll('.sales-subview').forEach(el => el.classList.add('hidden'));
@@ -3949,42 +4381,516 @@
 
       const activeBtn = document.getElementById(`salesTabBtn-${currentSalesPlatform}`);
       if (activeBtn) {
-        if (currentSalesPlatform === 'zepto') {
+        if (currentSalesPlatform === 'dashboard') {
+          activeBtn.className = 'sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-blue-900 shadow-2xs border border-blue-300';
+        } else if (currentSalesPlatform === 'zepto') {
           activeBtn.className = 'sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-emerald-900 shadow-2xs border border-emerald-300';
         } else if (currentSalesPlatform === 'blinkit') {
           activeBtn.className = 'sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-amber-900 shadow-2xs border border-amber-300';
         } else if (currentSalesPlatform === 'instamart') {
           activeBtn.className = 'sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-orange-900 shadow-2xs border border-orange-300';
+        } else if (currentSalesPlatform === 'bigbasket') {
+          activeBtn.className = 'sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-rose-900 shadow-2xs border border-rose-300';
         } else {
           activeBtn.className = 'sales-platform-nav-btn px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-white text-purple-900 shadow-2xs border border-purple-300';
         }
       }
 
       // 4. Trigger data load
-      if (currentSalesPlatform === 'zepto') {
+      if (currentSalesPlatform === 'dashboard') {
+        loadSalesDashboardAnalytics();
+      } else if (currentSalesPlatform === 'zepto') {
         loadZeptoSales();
       } else if (currentSalesPlatform === 'blinkit') {
         loadBlinkitSalesTab();
       } else if (currentSalesPlatform === 'instamart') {
         loadInstamartSales();
+      } else if (currentSalesPlatform === 'bigbasket') {
+        loadBigBasketSales();
       } else if (currentSalesPlatform === 'consolidated') {
         loadConsolidatedPipelineTab();
       }
     }
 
     async function loadSalesTab() {
-      selectSalesPlatform(currentSalesPlatform || 'zepto');
+      selectSalesPlatform(currentSalesPlatform || 'dashboard');
+    }
+
+    // --- SALES DASHBOARD ANALYTICS LOGIC ---
+    function debounceSalesDashSearch() {
+      if (salesDashDebounceTimer) clearTimeout(salesDashDebounceTimer);
+      salesDashDebounceTimer = setTimeout(() => {
+        loadSalesDashboardAnalytics();
+      }, 300);
+    }
+
+    function getEffectiveSalesAnchorDate() {
+      if (salesDashAnalyticsData && salesDashAnalyticsData.filter_options && salesDashAnalyticsData.filter_options.max_date) {
+        return new Date(salesDashAnalyticsData.filter_options.max_date + 'T00:00:00');
+      }
+      return new Date();
+    }
+
+    function formatDateISO(d) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function onSalesDashManualDateChange() {
+      const presetSel = document.getElementById('salesDashDatePresetSelect');
+      if (presetSel) presetSel.value = 'custom';
+      ['all', '7d', '14d', '30d', 'this_month'].forEach(p => {
+        const btn = document.getElementById(`btnSalesDashPreset-${p}`);
+        if (btn) btn.className = 'px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition';
+      });
+      loadSalesDashboardAnalytics();
+    }
+
+    function setSalesDashDatePreset(preset) {
+      const startInp = document.getElementById('salesDashStartDate');
+      const endInp = document.getElementById('salesDashEndDate');
+      const presetSel = document.getElementById('salesDashDatePresetSelect');
+      if (presetSel && presetSel.value !== preset) {
+        presetSel.value = preset;
+      }
+      if (!startInp || !endInp) return;
+
+      // Update pill button styling
+      ['all', '7d', '14d', '30d', 'this_month'].forEach(p => {
+        const btn = document.getElementById(`btnSalesDashPreset-${p}`);
+        if (!btn) return;
+        if (p === preset) {
+          btn.className = 'px-2 py-1 text-[11px] font-bold rounded-md border bg-blue-50 text-blue-700 border-blue-200 shadow-2xs transition';
+        } else {
+          btn.className = 'px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition';
+        }
+      });
+
+      if (preset === 'custom') {
+        loadSalesDashboardAnalytics();
+        return;
+      }
+
+      if (preset === 'all') {
+        startInp.value = '';
+        endInp.value = '';
+      } else if (preset === 'today') {
+        const anchor = getEffectiveSalesAnchorDate();
+        startInp.value = formatDateISO(anchor);
+        endInp.value = formatDateISO(anchor);
+      } else if (preset === 'yesterday') {
+        const anchor = getEffectiveSalesAnchorDate();
+        anchor.setDate(anchor.getDate() - 1);
+        startInp.value = formatDateISO(anchor);
+        endInp.value = formatDateISO(anchor);
+      } else if (preset === '7d') {
+        const anchor = getEffectiveSalesAnchorDate();
+        const endStr = formatDateISO(anchor);
+        anchor.setDate(anchor.getDate() - 6);
+        startInp.value = formatDateISO(anchor);
+        endInp.value = endStr;
+      } else if (preset === '14d') {
+        const anchor = getEffectiveSalesAnchorDate();
+        const endStr = formatDateISO(anchor);
+        anchor.setDate(anchor.getDate() - 13);
+        startInp.value = formatDateISO(anchor);
+        endInp.value = endStr;
+      } else if (preset === '30d') {
+        const anchor = getEffectiveSalesAnchorDate();
+        const endStr = formatDateISO(anchor);
+        anchor.setDate(anchor.getDate() - 29);
+        startInp.value = formatDateISO(anchor);
+        endInp.value = endStr;
+      } else if (preset === 'this_month') {
+        const anchor = getEffectiveSalesAnchorDate();
+        const endStr = formatDateISO(anchor);
+        const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        startInp.value = formatDateISO(firstOfMonth);
+        endInp.value = endStr;
+      } else if (preset === 'last_month') {
+        const anchor = getEffectiveSalesAnchorDate();
+        const firstOfPrevMonth = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
+        const lastOfPrevMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 0);
+        startInp.value = formatDateISO(firstOfPrevMonth);
+        endInp.value = formatDateISO(lastOfPrevMonth);
+      }
+
+      loadSalesDashboardAnalytics();
+    }
+
+    function resetSalesDashFilters() {
+      const startInp = document.getElementById('salesDashStartDate');
+      const endInp = document.getElementById('salesDashEndDate');
+      const platSel = document.getElementById('salesDashPlatformFilter');
+      const prodSel = document.getElementById('salesDashProductFilter');
+      const locSel = document.getElementById('salesDashLocationFilter');
+      const searchInp = document.getElementById('salesDashSearchInput');
+      const presetSel = document.getElementById('salesDashDatePresetSelect');
+
+      if (startInp) startInp.value = '';
+      if (endInp) endInp.value = '';
+      if (platSel) platSel.value = 'All';
+      if (prodSel) prodSel.value = 'All';
+      if (locSel) locSel.value = 'All';
+      if (searchInp) searchInp.value = '';
+      if (presetSel) presetSel.value = 'all';
+
+      ['all', '7d', '14d', '30d', 'this_month'].forEach(p => {
+        const btn = document.getElementById(`btnSalesDashPreset-${p}`);
+        if (!btn) return;
+        if (p === 'all') {
+          btn.className = 'px-2 py-1 text-[11px] font-bold rounded-md border bg-blue-50 text-blue-700 border-blue-200 shadow-2xs transition';
+        } else {
+          btn.className = 'px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition';
+        }
+      });
+
+      loadSalesDashboardAnalytics();
+    }
+
+    async function loadSalesDashboardAnalytics() {
+      const startDate = document.getElementById('salesDashStartDate')?.value || '';
+      const endDate = document.getElementById('salesDashEndDate')?.value || '';
+      const platform = document.getElementById('salesDashPlatformFilter')?.value || 'All';
+      const sku = document.getElementById('salesDashProductFilter')?.value || 'All';
+      const location = document.getElementById('salesDashLocationFilter')?.value || 'All';
+      const search = document.getElementById('salesDashSearchInput')?.value || '';
+
+      const tbody = document.getElementById('salesDashTableBody');
+      if (tbody && !salesDashAnalyticsData) {
+        tbody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-blue-500 text-xl mb-2"></i><p>Loading Sales Dashboard analytics...</p></td></tr>';
+      }
+
+      const params = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+        platform: platform,
+        sku: sku,
+        location: location,
+        brand: currentBrand || 'All',
+        search: search,
+        limit: 250
+      });
+
+      try {
+        const res = await fetch(`/api/sales/dashboard-analytics?${params.toString()}`, {
+          headers: getAuthHeaders()
+        });
+        if (res.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const data = await res.json();
+        if (data.status !== 'success') return;
+
+        salesDashAnalyticsData = data;
+
+        // 1. Populate Dropdowns (preserving selection if options already present)
+        const platSelect = document.getElementById('salesDashPlatformFilter');
+        const prodSelect = document.getElementById('salesDashProductFilter');
+        const locSelect = document.getElementById('salesDashLocationFilter');
+
+        if (platSelect && platSelect.options.length <= 1 && data.filter_options) {
+          const currPlat = platSelect.value;
+          (data.filter_options.platforms || []).forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            platSelect.appendChild(opt);
+          });
+          if (currPlat) platSelect.value = currPlat;
+        }
+
+        if (prodSelect && prodSelect.options.length <= 1 && data.filter_options) {
+          const currSku = prodSelect.value;
+          (data.filter_options.products || []).forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.sku;
+            opt.textContent = p.name ? `${p.name} (${p.sku})` : p.sku;
+            prodSelect.appendChild(opt);
+          });
+          if (currSku) prodSelect.value = currSku;
+        }
+
+        if (locSelect && locSelect.options.length <= 1 && data.filter_options) {
+          const currLoc = locSelect.value;
+          (data.filter_options.locations || []).forEach(l => {
+            const opt = document.createElement('option');
+            opt.value = l;
+            opt.textContent = l;
+            locSelect.appendChild(opt);
+          });
+          if (currLoc) locSelect.value = currLoc;
+        }
+
+        // 2. Render KPIs
+        const kpis = data.kpis || {};
+        if (document.getElementById('salesDashKpiUnits')) {
+          document.getElementById('salesDashKpiUnits').textContent = (kpis.total_units || 0).toLocaleString();
+        }
+        if (document.getElementById('salesDashKpiRevenue')) {
+          document.getElementById('salesDashKpiRevenue').textContent = '₹' + Math.round(kpis.total_revenue || 0).toLocaleString('en-IN');
+        }
+        if (document.getElementById('salesDashKpiPlatforms')) {
+          document.getElementById('salesDashKpiPlatforms').textContent = kpis.active_platforms || 0;
+        }
+        if (document.getElementById('salesDashKpiLocations')) {
+          document.getElementById('salesDashKpiLocations').textContent = kpis.active_locations || 0;
+        }
+        if (document.getElementById('salesDashKpiAvgPrice')) {
+          document.getElementById('salesDashKpiAvgPrice').textContent = '₹' + Number(kpis.avg_unit_value || 0).toFixed(2);
+        }
+        if (document.getElementById('salesDashRecordCountBadge')) {
+          document.getElementById('salesDashRecordCountBadge').textContent = `${(kpis.total_records || 0).toLocaleString()} Records`;
+        }
+
+        // 3. Render Active Date Range Banner & Filter Badges
+        const dateRangeEl = document.getElementById('salesDashDateRangeText');
+        if (dateRangeEl) {
+          if (!startDate && !endDate) {
+            const minD = data.filter_options?.min_date;
+            const maxD = data.filter_options?.max_date;
+            if (minD && maxD) {
+              dateRangeEl.textContent = `All Time (${minD} to ${maxD})`;
+            } else {
+              dateRangeEl.textContent = `All Time (Full History)`;
+            }
+          } else if (startDate && !endDate) {
+            dateRangeEl.textContent = `From ${startDate} onwards`;
+          } else if (!startDate && endDate) {
+            dateRangeEl.textContent = `Up to ${endDate}`;
+          } else if (startDate === endDate) {
+            dateRangeEl.textContent = `${startDate} (Single Day)`;
+          } else {
+            const d1 = new Date(startDate + 'T00:00:00');
+            const d2 = new Date(endDate + 'T00:00:00');
+            const diffDays = Math.round(Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+            dateRangeEl.textContent = `${startDate} to ${endDate} (${diffDays} Days)`;
+          }
+        }
+
+        const badgeCont = document.getElementById('salesDashFilterBadgeContainer');
+        if (badgeCont) {
+          const activeFilters = [];
+          if (platform && platform !== 'All') activeFilters.push(`Platform: <strong>${escapeHtml(platform)}</strong>`);
+          if (sku && sku !== 'All') activeFilters.push(`Product: <strong>${escapeHtml(sku)}</strong>`);
+          if (location && location !== 'All') activeFilters.push(`Location: <strong>${escapeHtml(location)}</strong>`);
+          if (startDate || endDate) activeFilters.push(`Range: <strong>${startDate || 'Start'} &rarr; ${endDate || 'End'}</strong>`);
+          if (search) activeFilters.push(`Query: <strong>"${escapeHtml(search)}"</strong>`);
+
+          if (activeFilters.length === 0) {
+            badgeCont.innerHTML = `<span class="text-slate-400">Filters:</span> <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-medium">All Data</span>`;
+          } else {
+            badgeCont.innerHTML = `<span class="text-slate-400">Filters:</span> ` + activeFilters.map(f => `<span class="bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded text-[10px]">${f}</span>`).join(' ');
+          }
+        }
+
+        // 4. Render Platform Market Share Breakdown
+        const platListEl = document.getElementById('salesDashPlatformShareList');
+        const platTotalLabel = document.getElementById('salesDashPlatformTotalLabel');
+        if (platTotalLabel) {
+          platTotalLabel.textContent = `${(kpis.total_units || 0).toLocaleString()} Units Total`;
+        }
+        if (platListEl) {
+          platListEl.innerHTML = '';
+          const plats = data.platforms || [];
+          if (plats.length === 0) {
+            platListEl.innerHTML = '<div class="text-center text-slate-400 text-xs py-4">No platform sales data found.</div>';
+          } else {
+            const platTheme = {
+              'Blinkit': { color: 'amber', bar: 'bg-amber-500', badge: 'bg-amber-100 text-amber-900 border-amber-300' },
+              'Zepto': { color: 'emerald', bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+              'Instamart': { color: 'orange', bar: 'bg-orange-500', badge: 'bg-orange-100 text-orange-900 border-orange-300' },
+              'BigBasket': { color: 'rose', bar: 'bg-rose-500', badge: 'bg-rose-100 text-rose-900 border-rose-300' }
+            };
+
+            plats.forEach(p => {
+              const theme = platTheme[p.platform] || { color: 'blue', bar: 'bg-blue-500', badge: 'bg-blue-100 text-blue-900 border-blue-300' };
+              const row = document.createElement('div');
+              row.className = 'p-2 rounded-lg bg-slate-50 border border-slate-100 hover:border-slate-300 transition cursor-pointer';
+              row.onclick = () => {
+                const pSel = document.getElementById('salesDashPlatformFilter');
+                if (pSel) { pSel.value = p.platform; loadSalesDashboardAnalytics(); }
+              };
+              row.innerHTML = `
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <div class="flex items-center gap-1.5 font-bold text-slate-800">
+                    <span class="w-2.5 h-2.5 rounded-full ${theme.bar}"></span>
+                    <span>${escapeHtml(p.platform)}</span>
+                    <span class="text-[10px] font-normal text-slate-400 font-mono">(${p.locations_count} nodes)</span>
+                  </div>
+                  <div class="flex items-center gap-2 text-right">
+                    <span class="font-bold text-slate-900 font-mono">${(p.units || 0).toLocaleString()} u</span>
+                    <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">${p.unit_share_pct}%</span>
+                    <span class="font-bold text-emerald-800 font-mono text-[11px]">₹${Math.round(p.revenue || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                  <div class="${theme.bar} h-1.5 rounded-full transition-all duration-500" style="width: ${Math.min(100, Math.max(2, p.unit_share_pct))}%"></div>
+                </div>
+              `;
+              platListEl.appendChild(row);
+            });
+          }
+        }
+
+        // 5. Render Top Products & Top Locations
+        const topProdList = document.getElementById('salesDashTopProductsList');
+        if (topProdList) {
+          topProdList.innerHTML = '';
+          const prods = (data.top_products || []).slice(0, 5);
+          if (prods.length === 0) {
+            topProdList.innerHTML = '<div class="text-slate-400 text-[11px] py-2">No products found.</div>';
+          } else {
+            prods.forEach((tp, idx) => {
+              const item = document.createElement('div');
+              item.className = 'flex items-center justify-between p-1.5 rounded bg-slate-50 border border-slate-100 text-xs hover:bg-blue-50/50 transition cursor-pointer';
+              item.onclick = () => {
+                const prSel = document.getElementById('salesDashProductFilter');
+                if (prSel) { prSel.value = tp.sku; loadSalesDashboardAnalytics(); }
+              };
+              item.innerHTML = `
+                <div class="flex items-center gap-1.5 truncate max-w-[170px]">
+                  <span class="text-[10px] font-bold text-slate-400 w-3">#${idx + 1}</span>
+                  <div class="truncate">
+                    <div class="font-semibold text-slate-800 truncate" title="${escapeHtml(tp.product_name)}">${escapeHtml(tp.product_name)}</div>
+                    <div class="text-[9px] font-mono text-slate-400">${escapeHtml(tp.sku)}</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="font-bold text-blue-900 font-mono">${tp.units.toLocaleString()} u</div>
+                  <div class="text-[9px] text-emerald-700 font-mono font-semibold">₹${Math.round(tp.revenue).toLocaleString('en-IN')}</div>
+                </div>
+              `;
+              topProdList.appendChild(item);
+            });
+          }
+        }
+
+        const topLocList = document.getElementById('salesDashTopLocationsList');
+        if (topLocList) {
+          topLocList.innerHTML = '';
+          const locs = (data.top_locations || []).slice(0, 5);
+          if (locs.length === 0) {
+            topLocList.innerHTML = '<div class="text-slate-400 text-[11px] py-2">No locations found.</div>';
+          } else {
+            locs.forEach((tl, idx) => {
+              const item = document.createElement('div');
+              item.className = 'flex items-center justify-between p-1.5 rounded bg-slate-50 border border-slate-100 text-xs hover:bg-emerald-50/50 transition cursor-pointer';
+              item.onclick = () => {
+                const lSel = document.getElementById('salesDashLocationFilter');
+                if (lSel) { lSel.value = tl.location; loadSalesDashboardAnalytics(); }
+              };
+              item.innerHTML = `
+                <div class="flex items-center gap-1.5 truncate max-w-[160px]">
+                  <span class="text-[10px] font-bold text-slate-400 w-3">#${idx + 1}</span>
+                  <div class="truncate">
+                    <div class="font-semibold text-slate-800 truncate">${escapeHtml(tl.location)}</div>
+                    <div class="text-[9px] text-slate-400 font-mono">${tl.platforms_count} channel(s)</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="font-bold text-amber-950 font-mono">${tl.units.toLocaleString()} u</div>
+                  <div class="text-[9px] text-slate-500 font-mono">${tl.share_pct}% share</div>
+                </div>
+              `;
+              topLocList.appendChild(item);
+            });
+          }
+        }
+
+        // 6. Render Ledger Records Table
+        if (tbody) {
+          tbody.innerHTML = '';
+          const records = data.records || [];
+          if (records.length === 0) {
+            tbody.innerHTML = `
+              <tr>
+                <td colspan="9" class="p-8 text-center text-slate-400">
+                  <i class="fa-solid fa-file-circle-question text-3xl mb-2 text-slate-300 block"></i>
+                  No sales transactions match the current combination of filters.
+                </td>
+              </tr>
+            `;
+            return;
+          }
+
+          const platBadgeTheme = {
+            'Blinkit': 'bg-amber-100 text-amber-900 border-amber-300',
+            'Zepto': 'bg-emerald-100 text-emerald-900 border-emerald-300',
+            'Instamart': 'bg-orange-100 text-orange-900 border-orange-300',
+            'BigBasket': 'bg-rose-100 text-rose-900 border-rose-300'
+          };
+
+          records.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50 transition border-b border-slate-100 divide-x divide-slate-100';
+            const badgeClass = platBadgeTheme[r.platform] || 'bg-blue-100 text-blue-900 border-blue-300';
+
+            tr.innerHTML = `
+              <td class="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap">${escapeHtml(r.sale_date || '-')}</td>
+              <td class="py-2.5 px-2.5 text-center whitespace-nowrap">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeClass}">${escapeHtml(r.platform || '-')}</span>
+              </td>
+              <td class="py-2.5 px-3 font-mono font-bold text-blue-950 whitespace-nowrap">${escapeHtml(r.sku || '-')}</td>
+              <td class="py-2.5 px-3 font-semibold text-slate-900 truncate max-w-[220px]" title="${escapeHtml(r.product_name || '')}">${escapeHtml(r.product_name || '-')}</td>
+              <td class="py-2.5 px-2.5 text-slate-600 whitespace-nowrap">${escapeHtml(r.brand || '-')}</td>
+              <td class="py-2.5 px-3 text-slate-700 font-medium whitespace-nowrap">
+                <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">${escapeHtml(r.store_location || '-')}</span>
+              </td>
+              <td class="py-2.5 px-3 text-right font-bold font-mono text-blue-950 bg-blue-50/40">${(r.units_sold || 0).toLocaleString()}</td>
+              <td class="py-2.5 px-3 text-right font-bold font-mono text-emerald-950 bg-emerald-50/40">₹${Number(r.revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              <td class="py-2.5 px-3 font-mono text-slate-400 text-[10px] truncate max-w-[130px]" title="${escapeHtml(r.source_file || '')}">${escapeHtml(r.source_file || '-')}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+
+      } catch (err) {
+        console.error('Failed to load Sales Dashboard analytics:', err);
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-rose-500 font-bold">Network or server error while loading dashboard analytics.</td></tr>';
+        }
+      }
+    }
+
+    function exportSalesDashboardCSV() {
+      const startDate = document.getElementById('salesDashStartDate')?.value || '';
+      const endDate = document.getElementById('salesDashEndDate')?.value || '';
+      const platform = document.getElementById('salesDashPlatformFilter')?.value || 'All';
+      const sku = document.getElementById('salesDashProductFilter')?.value || 'All';
+      const location = document.getElementById('salesDashLocationFilter')?.value || 'All';
+      const search = document.getElementById('salesDashSearchInput')?.value || '';
+
+      const params = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+        platform: platform,
+        sku: sku,
+        location: location,
+        brand: currentBrand || 'All',
+        search: search
+      });
+
+      window.location.href = `/api/sales/export-csv?${params.toString()}`;
     }
 
     // --- ZEPTO SALES WORKSPACE LOGIC ---
     async function loadZeptoSales() {
       const citySelect = document.getElementById('zeptoFilterCity');
       const dateSelect = document.getElementById('zeptoFilterDate');
+      const startDate = document.getElementById('zeptoStartDate')?.value || '';
+      const endDate = document.getElementById('zeptoEndDate')?.value || '';
       const selectedCity = citySelect ? citySelect.value : 'All';
       const selectedDate = dateSelect ? dateSelect.value : 'All';
 
       try {
-        const res = await fetch(`/api/zepto/sales-summary?city=${encodeURIComponent(selectedCity)}&date=${encodeURIComponent(selectedDate)}`, { headers: getAuthHeaders() });
+        let url = `/api/zepto/sales-summary?city=${encodeURIComponent(selectedCity)}&date=${encodeURIComponent(selectedDate)}`;
+        if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
+        if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+        const res = await fetch(url, { headers: getAuthHeaders() });
         const data = await res.json();
         if (data.status !== 'success') return;
 
@@ -4128,8 +5034,16 @@
 
     // --- BLINKIT SALES WORKSPACE LOGIC ---
     async function loadBlinkitSalesTab() {
+      const startDate = document.getElementById('blinkitStartDate')?.value || '';
+      const endDate = document.getElementById('blinkitEndDate')?.value || '';
+
       try {
-        const res = await fetch('/api/blinkit/sales-tab-summary', { headers: getAuthHeaders() });
+        let url = '/api/blinkit/sales-tab-summary';
+        const q = [];
+        if (startDate) q.push(`start_date=${encodeURIComponent(startDate)}`);
+        if (endDate) q.push(`end_date=${encodeURIComponent(endDate)}`);
+        if (q.length > 0) url += '?' + q.join('&');
+        const res = await fetch(url, { headers: getAuthHeaders() });
         const data = await res.json();
         if (data.status !== 'success') return;
 
@@ -4223,8 +5137,16 @@
 
     // --- INSTAMART SALES WORKSPACE LOGIC ---
     async function loadInstamartSales() {
+      const startDate = document.getElementById('instamartStartDate')?.value || '';
+      const endDate = document.getElementById('instamartEndDate')?.value || '';
+
       try {
-        const res = await fetch('/api/instamart/sales-summary', { headers: getAuthHeaders() });
+        let url = '/api/instamart/sales-summary';
+        const q = [];
+        if (startDate) q.push(`start_date=${encodeURIComponent(startDate)}`);
+        if (endDate) q.push(`end_date=${encodeURIComponent(endDate)}`);
+        if (q.length > 0) url += '?' + q.join('&');
+        const res = await fetch(url, { headers: getAuthHeaders() });
         const data = await res.json();
         if (data.status !== 'success') return;
 
@@ -4305,6 +5227,140 @@
         }
       } catch (err) {
         console.error('Instamart upload error:', err);
+        alert('Upload failed: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fa-solid fa-upload"></i> Ingest';
+        }
+      }
+    }
+
+    // --- BIGBASKET SALES WORKSPACE LOGIC ---
+    async function loadBigBasketSales() {
+      const citySelect = document.getElementById('bigbasketFilterCity');
+      const bizSelect = document.getElementById('bigbasketFilterBiz');
+      const dateSelect = document.getElementById('bigbasketFilterDate');
+      const startDate = document.getElementById('bigbasketStartDate')?.value || '';
+      const endDate = document.getElementById('bigbasketEndDate')?.value || '';
+      const selectedCity = citySelect ? citySelect.value : 'All';
+      const selectedBiz = bizSelect ? bizSelect.value : 'All';
+      const selectedDate = dateSelect ? dateSelect.value : 'All';
+
+      try {
+        let url = `/api/bigbasket/sales-summary?city=${encodeURIComponent(selectedCity)}&business_type=${encodeURIComponent(selectedBiz)}&date=${encodeURIComponent(selectedDate)}`;
+        if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
+        if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (data.status !== 'success') return;
+
+        const kpis = data.kpis || {};
+        document.getElementById('bigbasketKpiUnits').textContent = (kpis.total_units || 0).toLocaleString();
+        document.getElementById('bigbasketKpiSales').textContent = '₹' + Math.round(kpis.total_sales || 0).toLocaleString('en-IN');
+        document.getElementById('bigbasketKpiCities').textContent = (kpis.total_cities || 0);
+        document.getElementById('bigbasketKpiDate').textContent = kpis.max_date || '--';
+
+        // Update dropdowns if only default is present
+        if (citySelect && citySelect.options.length <= 1 && data.filter_options) {
+          (data.filter_options.cities || []).forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = c;
+            citySelect.appendChild(opt);
+          });
+        }
+        if (bizSelect && bizSelect.options.length <= 1 && data.filter_options) {
+          (data.filter_options.business_types || []).forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b.toUpperCase();
+            bizSelect.appendChild(opt);
+          });
+        }
+        if (dateSelect && dateSelect.options.length <= 1 && data.filter_options) {
+          (data.filter_options.dates || []).forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d;
+            opt.textContent = d;
+            dateSelect.appendChild(opt);
+          });
+        }
+
+        const tbody = document.getElementById('bigbasketTableBody');
+        if (tbody) {
+          tbody.innerHTML = '';
+          const records = data.records || [];
+          if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="p-4 text-center text-slate-400">No BigBasket sales records match the selected filters.</td></tr>';
+            return;
+          }
+
+          records.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50 transition';
+            const matchedBadge = r.matched_sku && r.matched_sku !== 'UNKNOWN'
+              ? `<span class="font-bold text-rose-950">${escapeHtml(r.matched_product_name || r.sku_description)}</span> <span class="text-[10px] text-slate-400 font-mono">(${escapeHtml(r.matched_sku)})</span>`
+              : `<span class="text-slate-800">${escapeHtml(r.sku_description)}</span>`;
+
+            tr.innerHTML = `
+              <td class="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap">${r.sale_date}</td>
+              <td class="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">${escapeHtml(r.city || '-')}</td>
+              <td class="py-2.5 px-2.5 uppercase font-mono text-[10px] font-bold text-slate-500 whitespace-nowrap">${escapeHtml(r.business_type || 'b2c')}</td>
+              <td class="py-2.5 px-3 font-mono text-slate-600 text-[11px]">${escapeHtml(r.source_sku_id)}</td>
+              <td class="py-2.5 px-3">${matchedBadge}</td>
+              <td class="py-2.5 px-2.5 text-slate-600 font-medium whitespace-nowrap">${escapeHtml(r.brand_slug || '-')}</td>
+              <td class="py-2.5 px-2.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">${escapeHtml(r.sku_weight || '-')}</td>
+              <td class="py-2.5 px-3 text-right font-bold font-mono text-rose-950 bg-rose-50/40">${(r.units_sold || 0).toLocaleString()}</td>
+              <td class="py-2.5 px-3 text-right font-bold font-mono text-slate-900 bg-rose-50/20">₹${Number(r.sales_amount || 0).toFixed(2)}</td>
+              <td class="py-2.5 px-2.5 text-slate-400 font-mono text-[10px] max-w-[120px] truncate" title="${escapeHtml(r.source_file || '')}">${escapeHtml(r.source_file || 'BigBasket_Sales.csv')}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load BigBasket sales data:', err);
+      }
+    }
+
+    async function handleBigBasketUpload() {
+      const input = document.getElementById('bigbasketFileInput');
+      const btn = document.getElementById('bigbasketUploadBtn');
+      const notice = document.getElementById('bigbasketUploadNotice');
+      if (!input || !input.files || input.files.length === 0) {
+        alert('Please choose a BigBasket sales report file to upload (.csv or .xlsx).');
+        return;
+      }
+
+      const file = input.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Ingesting...';
+        }
+
+        const res = await fetch('/api/bigbasket/upload-sales', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: formData
+        });
+        const data = await res.json();
+
+        if (res.ok && data.status === 'success') {
+          if (notice) {
+            notice.className = 'text-[11px] text-rose-950 font-bold mt-2 flex items-center gap-1 bg-rose-50 p-2 rounded-lg border border-rose-300';
+            notice.innerHTML = `<i class="fa-solid fa-circle-check text-rose-700"></i> Successfully ingested ${data.upserted_records} BigBasket sales records (${data.total_units_sold} units, ₹${data.total_sales_amount.toLocaleString('en-IN')}) for ${data.date_range}. Zero duplicate overlap!`;
+          }
+          input.value = '';
+          await loadBigBasketSales();
+        } else {
+          alert('BigBasket Upload Failed: ' + (data.error || data.message || 'Server error'));
+        }
+      } catch (err) {
+        console.error('BigBasket upload error:', err);
         alert('Upload failed: ' + err.message);
       } finally {
         if (btn) {
@@ -7600,6 +8656,67 @@
       document.getElementById('po_number').value = `PO-${cleanPlat}-${yr}-${rand}`;
     }
 
+    function findBestMatchingProductSku(rawSku, rawName) {
+      if (!productsList || productsList.length === 0) return rawSku || '';
+      const sSku = (rawSku || '').trim().toUpperCase();
+      const sName = (rawName || '').trim().toLowerCase();
+
+      // 1. Direct SKU match
+      if (sSku) {
+        const directSku = productsList.find(p => (p.sku || '').toUpperCase() === sSku);
+        if (directSku) return directSku.sku;
+      }
+
+      // 2. Direct Name exact match
+      if (sName) {
+        const directName = productsList.find(p => (p.name || '').toLowerCase() === sName);
+        if (directName) return directName.sku;
+      }
+
+      // 3. Synonym and Keyword Matching Engine (handles platform phrasing and typos)
+      const combined = (sName + ' ' + sSku).toLowerCase();
+      const rules = [
+        { sku: 'CS0004', keywords: ['moisturiz', 'moisturis', 'moistuir', 'barrier repair', 'ceramide', 'repair cream', 'hydrating gel', 'moisturising'] },
+        { sku: 'CS0006', keywords: ['sunscreen', 'sun screen', 'sunblock', 'sun block', 'spf50', 'spf 50', 'no-cast', 'cica sunscreen', 'glow sunscreen'] },
+        { sku: 'CS0001', keywords: ['cleanser', 'face wash', 'facewash', 'cleansing gel', 'acne wash', 'cica cleanser', 'face cleanser'] },
+        { sku: 'CS0003', keywords: ['patch', 'patches', 'pimple patch', 'pimple patches', 'acne patch', 'acne patches', 'hydrocolloid', 'spot patch'] },
+        { sku: 'CS0005', keywords: ['spot relief', 'spot treatment', 'acne spot', 'one hour acne', '1 hour acne', 'spot corrector'] },
+        { sku: 'CS0007', keywords: ['scar cream', 'scar clear', 'acne scar', 'scar gel', 'scar repair', 'scar'] },
+        { sku: 'CS0002', keywords: ['serum', 'acne control face serum', 'face serum', 'acne serum', 'niacinamide serum'] },
+        { sku: 'NL001', keywords: ['banana chip', 'banana chips', 'rock salt banana', 'banana'] },
+        { sku: 'NL002', keywords: ['ragi chip', 'ragi chips', 'baked ragi', 'ragi'] },
+        { sku: 'NL003', keywords: ['bhujia', 'baked bhujia', 'nutrabites', 'protein bhujia'] },
+        { sku: 'NL008', keywords: ['chocolate cookie', 'chocolate cookies', 'choco cookie', 'choco cookies', 'chocolate'] },
+        { sku: 'NL009', keywords: ['protein cookie', 'protein cookies'] },
+        { sku: 'NL004', keywords: ['oats cookie', 'oats cookies', 'oat cookie', 'oat cookies', 'oats', 'oat', 'cookie', 'cookies'] },
+        { sku: 'NL005', keywords: ['hair skin', 'hair & skin', 'hair and skin', 'hair gummy', 'hair gummies', 'hair'] },
+        { sku: 'NL006', keywords: ['sleep gummy', 'sleep gummies', 'deep sleep', 'melatonin', 'sleep supplement', 'sleep'] },
+        { sku: 'NL007', keywords: ['handwash', 'hand wash', 'hand soap', 'aqua fresh hand wash', 'aquafresh'] },
+        { sku: 'NUNOO2024', keywords: ['noodle', 'noodles', 'nutranoodles', 'atta noodle'] },
+        { sku: 'B1-001', keywords: ['body wash', 'bodywash'] },
+        { sku: 'SKU-001', keywords: ['herbal face wash', 'herbal wash'] }
+      ];
+
+      for (const r of rules) {
+        for (const kw of r.keywords) {
+          if (combined.includes(kw)) {
+            const found = productsList.find(p => p.sku === r.sku);
+            if (found) return found.sku;
+          }
+        }
+      }
+
+      // 4. Substring fallback match
+      for (const p of productsList) {
+        const pName = (p.name || '').toLowerCase();
+        if (pName && (combined.includes(pName) || (sName && pName.includes(sName)))) {
+          return p.sku;
+        }
+      }
+
+      return rawSku || '';
+    }
+
     function addPOProductRow(initialData = null) {
       const tbody = document.getElementById('poItemsTableBody');
       const rowIdx = tbody.children.length + 1;
@@ -7641,16 +8758,9 @@
 
       if (initialData) {
         const sel = tr.querySelector('.po-item-sku');
-        if (initialData.sku) {
-          sel.value = initialData.sku;
-        } else if (initialData.product_name) {
-          for (let opt of sel.options) {
-            const optName = opt.getAttribute('data-name');
-            if (optName && optName.toLowerCase() === initialData.product_name.toLowerCase()) {
-              sel.value = opt.value;
-              break;
-            }
-          }
+        const matchedSku = findBestMatchingProductSku(initialData.sku, initialData.product_name);
+        if (matchedSku) {
+          sel.value = matchedSku;
         }
         updatePOProductDetails(sel);
       }
@@ -8359,23 +9469,11 @@
         const qtyInput = firstRow.querySelector('.po-item-qty');
 
         if (skuSelect) {
-          let matched = false;
-          for (let i = 0; i < skuSelect.options.length; i++) {
-            const opt = skuSelect.options[i];
-            const optText = opt.text.toLowerCase();
-            const optVal = opt.value.toLowerCase();
-            if (sku && optVal === sku.toLowerCase()) {
-              skuSelect.selectedIndex = i;
-              matched = true;
-              break;
-            }
-            if (productName && optText.includes(productName.toLowerCase())) {
-              skuSelect.selectedIndex = i;
-              matched = true;
-              break;
-            }
+          const matchedSku = findBestMatchingProductSku(sku, productName);
+          if (matchedSku) {
+            skuSelect.value = matchedSku;
           }
-          if (matched && typeof updatePOProductDetails === 'function') {
+          if (typeof updatePOProductDetails === 'function') {
             updatePOProductDetails(skuSelect);
           }
         }
