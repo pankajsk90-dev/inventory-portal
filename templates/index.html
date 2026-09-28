@@ -9413,9 +9413,13 @@
             </div>
           </td>
           <td class="py-2 px-3">
-            <div class="font-semibold text-slate-800 leading-snug">${escapeHtml(r.item_name)}</div>
+            <div class="font-semibold text-slate-800 leading-snug flex items-center gap-1.5 flex-wrap">
+              <span>${escapeHtml(r.item_name)}</span>
+              ${r.uom ? `<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">${escapeHtml(r.uom)}</span>` : ''}
+            </div>
             <div class="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center gap-2">
               <span>Brand: <strong class="text-slate-600">${escapeHtml(r.brand_name || '-')}</strong></span>
+              <span>ID: <strong class="text-slate-600">${escapeHtml(r.item_id || '-')}</strong></span>
               <span>UPC: ${escapeHtml(r.upc || '-')}</span>
             </div>
           </td>
